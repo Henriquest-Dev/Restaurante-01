@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
+import { stillUrl } from '../journey/data'
 import {
   createReservationService,
   ReservationError,
@@ -129,10 +130,14 @@ export function ReservationDialog({ open, featured, onClose }: Props) {
         if (e.target === ref.current) close()
       }}
     >
+      <div className="reserve__photo" aria-hidden="true" style={{ backgroundImage: `url(${stillUrl('10', 7)})` }} />
       <div className="reserve__inner">
         <header className="reserve__head">
-          <h2 id={id('title')}>Reservar mesa</h2>
-          <button type="button" className="icon-btn" onClick={close} aria-label="Fechar">
+          <div>
+            <p className="reserve__eyebrow">SALA · Maputo</p>
+            <h2 id={id('title')}>Reservar mesa</h2>
+          </div>
+          <button type="button" className="round" onClick={close} aria-label="Fechar">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.5" fill="none" />
             </svg>
@@ -165,7 +170,7 @@ export function ReservationDialog({ open, featured, onClose }: Props) {
                 <p className="reserve__ref">Referência local: {result.reference}</p>
               </>
             )}
-            <button type="button" className="btn btn--solid" onClick={close}>
+            <button type="button" className="pill pill--solid" onClick={close}>
               Fechar
             </button>
           </div>
@@ -187,17 +192,15 @@ export function ReservationDialog({ open, featured, onClose }: Props) {
                 <input id={id('time')} type="time" step={900} value={form.time} onChange={(e) => set('time', e.target.value)} required {...field('time')} />
                 {errors.time && <p className="f__err" id={id('time-err')}>{errors.time}</p>}
               </div>
-              <div className="f f--small">
-                <label htmlFor={id('party')}>Pessoas</label>
-                <select id={id('party')} value={form.partySize} onChange={(e) => set('partySize', Number(e.target.value))} {...field('partySize')}>
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-                {errors.partySize && <p className="f__err" id={id('partySize-err')}>{errors.partySize}</p>}
+            </div>
+            <div className="f">
+              <span className="f__label" id={id('party')}>Pessoas</span>
+              <div className="stepper" role="group" aria-labelledby={id('party')}>
+                <button type="button" onClick={() => set('partySize', Math.max(1, form.partySize - 1))} disabled={form.partySize <= 1} aria-label="Menos uma pessoa">−</button>
+                <output aria-live="polite">{form.partySize} {form.partySize === 1 ? 'pessoa' : 'pessoas'}</output>
+                <button type="button" onClick={() => set('partySize', Math.min(12, form.partySize + 1))} disabled={form.partySize >= 12} aria-label="Mais uma pessoa">+</button>
               </div>
+              {errors.partySize && <p className="f__err" id={id('partySize-err')}>{errors.partySize}</p>}
             </div>
             <div className="f">
               <label htmlFor={id('name')}>Nome</label>
@@ -231,7 +234,7 @@ export function ReservationDialog({ open, featured, onClose }: Props) {
             <div aria-live="polite" className="reserve__status">
               {status === 'error' && <p className="f__err">{message}</p>}
             </div>
-            <button type="submit" className="btn btn--solid btn--wide" disabled={status === 'sending'} aria-busy={status === 'sending'}>
+            <button type="submit" className="pill pill--solid pill--wide" disabled={status === 'sending'} aria-busy={status === 'sending'}>
               {status === 'sending' ? 'A enviar…' : service.mode === 'prototype' ? 'Guardar pedido' : 'Enviar pedido'}
             </button>
           </form>

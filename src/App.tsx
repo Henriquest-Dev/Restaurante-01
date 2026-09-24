@@ -1,20 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ringBell, unlockAudio } from './audio/bell'
 import { ReservationDialog } from './components/ReservationDialog'
-import { CHAPTERS, type ChapterId } from './journey/data'
-import { JourneyEngine, type EngineState } from './journey/engine'
+import { CHAPTERS, manifestUrl, type ChapterId, type Manifest } from './journey/data'
+import { Player, type PlayerState } from './journey/player'
 
-const CAPTIONS: Partial<Record<ChapterId, string>> = {
-  '02': 'A entrada',
-  '03': 'Continue a descer para abrir a porta',
-  '04': 'Seja bem-vindo',
-  '05': 'Receção',
-  '07': 'Por aqui',
-  '08': 'A sala',
-  '10': 'A mesa em destaque',
-}
-
-const initialState: EngineState = {
+const initialState: PlayerState = {
   chapter: '01',
   lookActive: false,
   tableMoment: false,
@@ -23,72 +13,76 @@ const initialState: EngineState = {
   degraded: false,
 }
 
-function useReducedMotion() {
-  const [reduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
-  return reduced
-}
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 export default function App() {
-  const reduced = useReducedMotion()
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [reduced] = useState(reducedMotion)
+  const mediaRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const hotspotRef = useRef<HTMLButtonElement>(null)
   const progressRef = useRef<HTMLSpanElement>(null)
-  const engineRef = useRef<JourneyEngine | null>(null)
+  const titleRefs = useRef(new Map<ChapterId, HTMLElement>())
+  const playerRef = useRef<Player | null>(null)
 
-  const [state, setState] = useState<EngineState>(initialState)
+  const [manifest, setManifest] = useState<Manifest | null>(null)
+  const [loadError, setLoadError] = useState(false)
+  const [state, setState] = useState<PlayerState>(initialState)
   const [ready, setReady] = useState(false)
   const [sound, setSound] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [reserveOpen, setReserveOpen] = useState(false)
   const [featured, setFeatured] = useState(false)
   const [lookHint, setLookHint] = useState(true)
   const soundRef = useRef(false)
   soundRef.current = sound
 
-  const failKeys = useMemo(() => {
-    const q = new URLSearchParams(location.search).get('falha')
-    return q ? new Set(q.split(',')) : undefined
+  useEffect(() => {
+    fetch(manifestUrl)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then(setManifest, () => setLoadError(true))
   }, [])
 
   useEffect(() => {
+    if (!manifest) return
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
     window.scrollTo(0, 0)
-    const engine = new JourneyEngine({
-      canvas: canvasRef.current!,
-      track: trackRef.current!,
-      reducedMotion: reduced,
-      failKeys,
-      onState: setState,
-      onBell: () => {
-        if (soundRef.current) ringBell()
-      },
-    })
-    engine.hotspotEl = hotspotRef.current
-    engine.progressEl = progressRef.current
-    engine.stageEl = stageRef.current
-    engineRef.current = engine
-    // Test hook for automated checks: ?debug exposes the engine.
-    if (new URLSearchParams(location.search).has('debug')) (window as unknown as { __sala: JourneyEngine }).__sala = engine
-    engine.start()
-    const essential = engine.essentialKeys()
-    essential.forEach((k, i) => engine.load(k, -10 + i))
     let done = false
     const reveal = () => {
       if (done) return
       done = true
-      engine.prefetchEnabled = true
       setReady(true)
-      engine.invalidate()
     }
-    engine.store.whenSettled(essential).then(reveal)
-    // Never hold the visitor on the loader: reveal with the fallback if slow.
-    const t = setTimeout(reveal, 9000)
+    const player = new Player({
+      media: mediaRef.current!,
+      track: trackRef.current!,
+      manifest,
+      reducedMotion: reduced,
+      onState: setState,
+      onBell: () => {
+        if (soundRef.current) ringBell()
+      },
+      onFirstFrame: reveal,
+    })
+    player.hotspotEl = hotspotRef.current
+    player.progressEl = progressRef.current
+    player.stageEl = stageRef.current
+    player.titleEls = titleRefs.current
+    playerRef.current = player
+    // Test hook for automated checks: ?debug exposes the player.
+    if (new URLSearchParams(location.search).has('debug')) (window as unknown as { __sala: Player }).__sala = player
+    player.start()
+    // Never hold the visitor on the loader; the photographs stand in.
+    const t = setTimeout(reveal, 7000)
     return () => {
       clearTimeout(t)
-      engine.destroy()
+      player.destroy()
     }
-  }, [reduced, failKeys])
+  }, [manifest, reduced])
+
+  useEffect(() => {
+    if (loadError) setReady(true)
+  }, [loadError])
 
   /* ------------------------------------------------------ look-around input */
 
@@ -96,40 +90,38 @@ export default function App() {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!state.lookActive || e.button !== 0) return
-    if ((e.target as HTMLElement).closest('button')) return
+    if ((e.target as HTMLElement).closest('button, a')) return
     drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, locked: false }
   }
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
-    const engine = engineRef.current
-    if (!d || d.id !== e.pointerId || !engine) return
+    const player = playerRef.current
+    if (!d || d.id !== e.pointerId || !player) return
     const dx = e.clientX - d.x
     const dy = e.clientY - d.y
     if (!d.locked) {
-      // Horizontal intent must be clear before the view turns; vertical
-      // gestures are left to the browser, which keeps scrolling the page.
+      // Only a clearly horizontal gesture turns the view; anything else is
+      // left to the browser, which keeps scrolling the page.
       if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy) * 1.2) return
       d.locked = true
       d.x = e.clientX
       d.t = e.timeStamp
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-      engine.dragStart()
+      player.dragStart()
       setLookHint(false)
       return
     }
-    engine.dragMove(dx, e.timeStamp - d.t)
+    player.dragMove(dx, e.timeStamp - d.t)
     d.x = e.clientX
-    d.y = e.clientY
     d.t = e.timeStamp
   }
   const onPointerEnd = (e: React.PointerEvent) => {
     const d = drag.current
     if (!d || d.id !== e.pointerId) return
-    if (d.locked) engineRef.current?.dragEnd()
+    if (d.locked) playerRef.current?.dragEnd()
     drag.current = null
   }
 
-  // Trackpads and shift+wheel turn the view; vertical wheel still scrolls.
   useEffect(() => {
     const el = stageRef.current
     if (!el || !state.lookActive) return
@@ -138,8 +130,8 @@ export default function App() {
       if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
       e.preventDefault()
       acc += e.deltaX
-      if (Math.abs(acc) > 60) {
-        engineRef.current?.nudge(Math.sign(acc))
+      if (Math.abs(acc) > 50) {
+        playerRef.current?.nudge(Math.sign(acc))
         setLookHint(false)
         acc = 0
       }
@@ -151,30 +143,37 @@ export default function App() {
   useEffect(() => {
     if (!state.lookActive) return
     const onKey = (e: KeyboardEvent) => {
-      if (reserveOpen || (e.target as HTMLElement).closest('input, textarea, select')) return
+      if (reserveOpen || menuOpen || (e.target as HTMLElement).closest('input, textarea, select')) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
-        engineRef.current?.nudge(e.key === 'ArrowLeft' ? -1 : 1)
+        playerRef.current?.nudge(e.key === 'ArrowLeft' ? -1 : 1)
         setLookHint(false)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [state.lookActive, reserveOpen])
+  }, [state.lookActive, reserveOpen, menuOpen])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen])
 
   /* ------------------------------------------------------------- actions */
 
   const goChapter = useCallback((id: ChapterId) => {
-    const e = engineRef.current
-    if (!e) return
-    void e.goTo(id === '09' ? e.offsetOfLook() : e.offsetOfChapter(id) + 2)
+    setMenuOpen(false)
+    const p = playerRef.current
+    if (p) void p.goTo(p.offsetOf(id))
   }, [])
 
   const goTable = () => {
-    const e = engineRef.current
-    if (!e) return
+    const p = playerRef.current
+    if (!p) return
     setLookHint(false)
-    void e.goTo(e.offsetOfTable(), true)
+    void p.goTo(p.offsetOfTable(), true)
   }
 
   const toggleSound = () => {
@@ -183,69 +182,51 @@ export default function App() {
   }
 
   const openReserve = (fromTable: boolean) => {
+    setMenuOpen(false)
     setFeatured(fromTable)
     setReserveOpen(true)
   }
 
-  const bell = () => {
-    if (!sound) return
-    ringBell()
-  }
-
   const chapterIndex = CHAPTERS.findIndex((c) => c.id === state.chapter)
-  const caption = CAPTIONS[state.chapter]
+  const chapter = CHAPTERS[chapterIndex]
 
   return (
     <>
-      <div className={`loader ${ready ? 'is-done' : ''}`} aria-hidden={ready} role="status">
-        <span className="wordmark wordmark--large">SALA</span>
+      <div className={`loader ${ready ? 'is-done' : ''}`} aria-hidden={ready}>
+        <span className="loader__mark">SALA</span>
         <span className="loader__line" />
-        <span className="sr-only">A carregar</span>
+        <span className="sr-only" role="status">A carregar</span>
       </div>
 
       <header className="bar">
-        <button className="wordmark" onClick={() => goChapter('01')} aria-label="SALA — voltar ao início">
+        <button className="bar__mark" onClick={() => goChapter('01')} aria-label="SALA — voltar ao início">
           SALA
         </button>
         <div className="bar__actions">
-          <button className="icon-btn" onClick={toggleSound} aria-pressed={sound} aria-label={sound ? 'Desligar som' : 'Ligar som'}>
-            {sound ? (
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" />
-                <path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12" stroke="currentColor" strokeWidth="1.4" fill="none" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" />
-                <path d="M16.5 9.5l5 5m0-5l-5 5" stroke="currentColor" strokeWidth="1.4" />
-              </svg>
-            )}
+          <button className={`sound ${sound ? 'is-on' : ''}`} onClick={toggleSound} aria-pressed={sound} aria-label={sound ? 'Desligar som' : 'Ligar som'}>
+            <span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" />
           </button>
-          <button className="btn btn--ghost" onClick={() => openReserve(false)}>
+          <button className="pill" onClick={() => openReserve(false)}>
             Reservar
+          </button>
+          <button className={`burger ${menuOpen ? 'is-open' : ''}`} onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen} aria-controls="menu" aria-label={menuOpen ? 'Fechar percurso' : 'Abrir percurso'}>
+            <span aria-hidden="true" /><span aria-hidden="true" />
           </button>
         </div>
       </header>
 
-      <nav className="progress" aria-label="Percurso">
-        <span className="progress__rail" aria-hidden="true">
-          <span className="progress__fill" ref={progressRef} />
-        </span>
+      <nav id="menu" className={`menu ${menuOpen ? 'is-open' : ''}`} aria-label="Percurso" aria-hidden={!menuOpen} inert={!menuOpen}>
         <ol>
           {CHAPTERS.map((c, i) => (
-            <li key={c.id}>
-              <button
-                className={i === chapterIndex ? 'is-current' : i < chapterIndex ? 'is-past' : ''}
-                aria-current={i === chapterIndex ? 'step' : undefined}
-                onClick={() => goChapter(c.id)}
-                aria-label={`${c.id} — ${c.label}`}
-                title={c.label}
-              >
-                <span aria-hidden="true" />
+            <li key={c.id} style={{ transitionDelay: menuOpen ? `${80 + i * 35}ms` : '0ms' }}>
+              <button onClick={() => goChapter(c.id)} aria-current={i === chapterIndex ? 'step' : undefined}>
+                <span className="menu__num">{c.id}</span>
+                <span className="menu__label">{c.label}</span>
               </button>
             </li>
           ))}
         </ol>
+        <button className="menu__reserve" onClick={() => openReserve(false)}>Reservar mesa</button>
       </nav>
 
       <main>
@@ -258,88 +239,104 @@ export default function App() {
             onPointerUp={onPointerEnd}
             onPointerCancel={onPointerEnd}
           >
-            <canvas ref={canvasRef} className="stage__canvas" role="img" aria-label={`SALA — ${CHAPTERS[chapterIndex]?.label ?? ''}`} />
-            <div className="stage__shade" aria-hidden="true" />
-
-            <button ref={hotspotRef} className="hotspot" data-visible="false" onClick={goTable} aria-label="Ver a mesa em destaque" tabIndex={state.lookActive ? 0 : -1}>
-              <span aria-hidden="true" />
-            </button>
+            <div className="media" ref={mediaRef} role="img" aria-label={`SALA — ${chapter?.label ?? ''}`} />
+            <div className="grain" aria-hidden="true" />
+            <div className="shade" aria-hidden="true" />
 
             <div className={`intro ${state.intro && ready ? 'is-on' : ''}`} aria-hidden={!state.intro}>
+              <p className="intro__eyebrow">Maputo</p>
               <h1 className="intro__title">SALA</h1>
-              <p className="intro__sub">Restaurante · Maputo</p>
-              <p className="intro__hint">Desça para entrar</p>
+              <p className="intro__sub">Restaurante</p>
+              <p className="intro__hint">
+                <span>Deslize para entrar</span>
+                <i aria-hidden="true" />
+              </p>
             </div>
 
-            {caption && !state.tableMoment && (
-              <p className="caption" key={state.chapter}>
-                <span className="caption__num">{state.chapter}</span>
-                {caption}
-              </p>
-            )}
+            {CHAPTERS.filter((c) => c.title).map((c) => (
+              <div
+                key={c.id}
+                className="title"
+                ref={(el) => {
+                  if (el) titleRefs.current.set(c.id, el)
+                  else titleRefs.current.delete(c.id)
+                }}
+                style={{ opacity: 0, visibility: 'hidden' }}
+                aria-hidden={state.chapter !== c.id}
+              >
+                <span className="title__num">{c.id} <em>/ 11</em></span>
+                <h2 className="title__text">{c.title}</h2>
+                {c.line && <p className="title__line">{c.line}</p>}
+              </div>
+            ))}
 
             {state.chapter === '06' && (
-              <div className="bell">
-                <p className="caption caption--static">
-                  <span className="caption__num">06</span>Anuncie a sua chegada
-                </p>
-                <button className="btn btn--ghost" onClick={sound ? bell : toggleSound}>
-                  {sound ? 'Tocar a campainha' : 'Ligar som para a campainha'}
-                </button>
-              </div>
+              <button className="pill pill--float bell-btn" onClick={sound ? ringBell : toggleSound}>
+                {sound ? 'Tocar a campainha' : 'Ligar o som'}
+              </button>
             )}
+
+            <button ref={hotspotRef} className="hotspot" data-visible="false" onClick={goTable} aria-label="Ver a mesa em destaque" tabIndex={state.lookActive ? 0 : -1}>
+              <span className="hotspot__dot" aria-hidden="true" />
+              <span className="hotspot__label">A mesa</span>
+            </button>
 
             {state.lookActive && (
               <div className="look">
-                {lookHint && (
-                  <p className="look__hint" aria-live="polite">
-                    <span className="look__gesture" aria-hidden="true" />
-                    Deslize para explorar
-                  </p>
-                )}
+                <p className={`look__hint ${lookHint ? '' : 'is-gone'}`} aria-live="polite">
+                  <span className="look__hand" aria-hidden="true" />
+                  Deslize para olhar em volta
+                </p>
                 <div className="look__controls">
-                  <button className="icon-btn" onClick={() => { engineRef.current?.nudge(-1); setLookHint(false) }} aria-label="Olhar para a esquerda">
-                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M14.5 6l-6 6 6 6" stroke="currentColor" strokeWidth="1.4" fill="none" /></svg>
+                  <button className="round" onClick={() => { playerRef.current?.nudge(-1); setLookHint(false) }} aria-label="Olhar para a esquerda">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M14.5 6l-6 6 6 6" stroke="currentColor" strokeWidth="1.3" fill="none" /></svg>
                   </button>
-                  <button className="look__table" onClick={goTable}>Ir para a mesa em destaque</button>
-                  <button className="icon-btn" onClick={() => { engineRef.current?.nudge(1); setLookHint(false) }} aria-label="Olhar para a direita">
-                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9.5 6l6 6-6 6" stroke="currentColor" strokeWidth="1.4" fill="none" /></svg>
+                  <button className="pill" onClick={goTable}>A mesa em destaque</button>
+                  <button className="round" onClick={() => { playerRef.current?.nudge(1); setLookHint(false) }} aria-label="Olhar para a direita">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9.5 6l6 6-6 6" stroke="currentColor" strokeWidth="1.3" fill="none" /></svg>
                   </button>
                 </div>
-                <p className="look__down">Ou continue a descer</p>
               </div>
             )}
 
             {state.tableMoment && (
-              <div className="panel" role="region" aria-label="Mesa em destaque">
-                <p className="panel__eyebrow">A mesa em destaque</p>
-                <p className="panel__text">Reserve o seu lugar na SALA.</p>
-                <button className="btn btn--solid" onClick={() => openReserve(true)}>
+              <div className="card" role="region" aria-label="Mesa em destaque">
+                <p className="card__eyebrow">10 — A mesa em destaque</p>
+                <p className="card__title">O seu lugar<br />na SALA.</p>
+                <button className="pill pill--solid" onClick={() => openReserve(true)}>
                   Pedir reserva
                 </button>
               </div>
             )}
 
             {state.end && (
-              <div className="panel panel--end" role="region" aria-label="Fim do percurso">
-                <p className="panel__title">SALA</p>
-                <p className="panel__text">Restaurante · Maputo</p>
-                <div className="panel__actions">
-                  <button className="btn btn--solid" onClick={() => openReserve(false)}>
+              <div className="finale" role="region" aria-label="Fim do percurso">
+                <p className="finale__mark">SALA</p>
+                <p className="finale__sub">Restaurante · Maputo</p>
+                <div className="finale__actions">
+                  <button className="pill pill--solid" onClick={() => openReserve(false)}>
                     Reservar mesa
                   </button>
-                  <button className="btn btn--ghost" onClick={() => goChapter('01')}>
+                  <button className="pill" onClick={() => goChapter('01')}>
                     Voltar ao início
                   </button>
                 </div>
               </div>
             )}
 
-            {state.degraded && (
+            {(state.degraded || loadError) && (
               <p className="notice" role="status">
-                Algumas imagens não carregaram. Pode continuar o percurso ou reservar.
+                Parte da experiência não carregou. Pode continuar ou reservar.
               </p>
             )}
+
+            <div className="foot" aria-hidden="true">
+              <span className="foot__label">
+                <b>{chapter?.id}</b> {chapter?.label}
+              </span>
+              <span className="foot__rail"><span ref={progressRef} /></span>
+              <span className="foot__total">11</span>
+            </div>
           </div>
         </div>
       </main>
