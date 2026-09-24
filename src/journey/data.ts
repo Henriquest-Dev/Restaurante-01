@@ -3,7 +3,7 @@
  *
  * Each chapter is one storyboard sheet. Its photographs were upscaled and the
  * gaps between them filled with generated in-between frames, then encoded as
- * one video (public/assets/sala/video/section-XX.mp4) that the scroll
+ * one video (public/assets/sala/video/section-XX.{mp4,webm}) that the scroll
  * position scrubs. Frames that restart the camera behind where the previous
  * sheet ended are left out (see scripts/pipeline/build_media.py VIDEOS).
  */
@@ -12,10 +12,13 @@ export type ChapterId = '01' | '02' | '03' | '04' | '05' | '06' | '07' | '08' | 
 
 export interface Chapter {
   id: ChapterId
+  /** Roman numeral shown on the chapter card. */
+  numeral: string
   label: string
-  /** Overlay copy (pt-PT). */
+  /** Chapter card title (pt-PT). */
   title?: string
-  line?: string
+  /** Film-style subtitle shown mid-chapter. */
+  subtitle?: string
   /** Scroll distance per source photograph, in viewport heights. */
   step: number
   /** Extra scroll to rest on the last frame, in viewport heights. */
@@ -27,17 +30,17 @@ export interface Chapter {
 }
 
 export const CHAPTERS: Chapter[] = [
-  { id: '01', label: 'Exterior', step: 0.55, hold: 0.35, exit: 'dissolve' },
-  { id: '02', label: 'Entrada', title: 'A entrada', line: 'Pedra, madeira e luz quente.', step: 0.5 },
-  { id: '03', label: 'A porta', title: 'A porta', line: 'Entre.', step: 0.36, focalX: 0.6 },
-  { id: '04', label: 'Interior', title: 'Seja bem-vindo', step: 0.32 },
-  { id: '05', label: 'Receção', title: 'A receção', line: 'Estamos à sua espera.', step: 0.36, focalX: 0.62 },
-  { id: '06', label: 'Campainha', title: 'A campainha', line: 'Anuncie a sua chegada.', step: 0.4, hold: 0.3 },
-  { id: '07', label: 'Passagem', title: 'Por aqui', step: 0.32 },
-  { id: '08', label: 'A sala', title: 'A sala', line: 'Árvores, luz baixa e tempo.', step: 0.32, exit: 'dissolve' },
-  { id: '09', label: 'Explorar', step: 0 },
-  { id: '10', label: 'A mesa', title: 'A mesa em destaque', step: 0.42, hold: 0.9 },
-  { id: '11', label: 'Final', step: 0.5, hold: 0.8 },
+  { id: '01', numeral: 'I', label: 'A chegada', step: 0.55, hold: 0.35, exit: 'dissolve' },
+  { id: '02', numeral: 'II', label: 'A entrada', title: 'A entrada', subtitle: 'Pedra, madeira e luz quente.', step: 0.5 },
+  { id: '03', numeral: 'III', label: 'A porta', title: 'A porta', subtitle: 'Entre.', step: 0.36, focalX: 0.6 },
+  { id: '04', numeral: 'IV', label: 'O interior', title: 'Bem-vindo', step: 0.32 },
+  { id: '05', numeral: 'V', label: 'A receção', title: 'A receção', subtitle: 'Estamos à sua espera.', step: 0.36, focalX: 0.62 },
+  { id: '06', numeral: 'VI', label: 'A campainha', title: 'A campainha', subtitle: 'Anuncie a sua chegada.', step: 0.4, hold: 0.3 },
+  { id: '07', numeral: 'VII', label: 'A passagem', title: 'Por aqui', step: 0.32 },
+  { id: '08', numeral: 'VIII', label: 'A sala', title: 'A sala', subtitle: 'Árvores, luz baixa e tempo.', step: 0.32, exit: 'dissolve' },
+  { id: '09', numeral: 'IX', label: 'Olhar em volta', step: 0 },
+  { id: '10', numeral: 'X', label: 'A mesa', title: 'A mesa', step: 0.42, hold: 0.9 },
+  { id: '11', numeral: 'XI', label: 'Até breve', step: 0.5, hold: 0.8 },
 ]
 
 /** Look-around (section 09): 16 viewing directions, looped. */

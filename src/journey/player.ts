@@ -70,9 +70,17 @@ export class Player {
   lookInteracted = false
 
   hotspotEl: HTMLElement | null = null
-  progressEl: HTMLElement | null = null
   stageEl: HTMLElement | null = null
-  titleEls = new Map<ChapterId, HTMLElement>()
+  /** Letterbox bars: receives --lb from 0 (open) to 1 (closed). */
+  letterboxEl: HTMLElement | null = null
+  /** Chapter cards, scrubbed by chapter progress q (0–1) at opacity o. */
+  titleScrub = new Map<ChapterId, (q: number, o: number) => void>()
+  private titleLast = new Map<ChapterId, string>()
+  /** Easing time constant for the displayed scroll position (ms). */
+  smoothing = 110
+  /** Scrolls the page; replaced when a smooth-scroll library owns scrolling. */
+  scroller = (top: number, smooth: boolean) =>
+    window.scrollTo({ top, behavior: smooth ? 'smooth' : ('instant' as ScrollBehavior) })
 
   constructor(private opts: PlayerOptions) {
     this.timeline = buildTimeline(opts.manifest)
@@ -126,7 +134,7 @@ export class Player {
       this.unit = h
       this.opts.track.style.height = `${Math.ceil(this.timeline.total * this.unit + h)}px`
       if (!initial) {
-        window.scrollTo(0, p * this.unit)
+        this.scroller(p * this.unit, false)
         this.pos = p
       }
     }
@@ -276,7 +284,7 @@ export class Player {
     const target = this.target()
     // Critically damped easing toward the scroll position: the image keeps
     // gliding a moment after a swipe instead of stopping in steps.
-    const k = reduced ? 1 : 1 - Math.exp(-dt / 110)
+    const k = reduced || this.smoothing <= 0 ? 1 : 1 - Math.exp(-dt / this.smoothing)
     this.pos += (target - this.pos) * k
     if (Math.abs(target - this.pos) < 0.0004) this.pos = target
     this.animateLook(dt)
@@ -317,7 +325,7 @@ export class Player {
     const lookWeight = A.id === '09' ? oA : B?.id === '09' ? oB : 0
     this.updateHotspot(lookWeight)
     this.updateTitles(A, local, oA, B, oB)
-    if (this.progressEl) this.progressEl.style.transform = `scaleX(${this.pos / this.timeline.total})`
+    this.updateLetterbox(A, local)
 
     const tableSeg = segs.find((s) => s.id === '10')!
     const onTable = A.id === '10' && local > tableSeg.move - 0.05 && hand === 0
@@ -369,27 +377,33 @@ export class Player {
     this.opts.onState(s)
   }
 
-  /** Titles rise in with the chapter and drift up as it plays, like credits. */
+  /** Chapter cards play through as their chapter is scrolled. */
   private updateTitles(A: Segment, local: number, oA: number, B: Segment | undefined, oB: number) {
-    this.titleEls.forEach((el, id) => {
+    this.titleScrub.forEach((scrub, id) => {
+      let q = 0
       let o = 0
-      let y = 0
-      if (id === A.id || (B && id === B.id)) {
-        const seg = id === A.id ? A : B!
-        const l = id === A.id ? local : 0
-        const q = clamp(l / Math.max(0.4, seg.move))
-        const fadeIn = clamp((l - 0.04) / 0.22)
-        const fadeOut = 1 - clamp((q - 0.55) / 0.3)
-        o = Math.min(fadeIn, fadeOut) * (id === A.id ? oA : oB)
-        y = (0.35 - q) * 60
+      if (id === A.id) {
+        q = clamp(local / (A.len - HANDOVER * 0.5))
+        o = oA
+      } else if (B && id === B.id) {
+        o = oB
       }
-      const op = o.toFixed(3)
-      if (el.style.opacity !== op) {
-        el.style.opacity = op
-        el.style.transform = `translate3d(0, ${y.toFixed(1)}px, 0)`
-        el.style.visibility = o > 0.01 ? 'visible' : 'hidden'
-      }
+      const key = `${q.toFixed(4)}|${o.toFixed(3)}`
+      if (this.titleLast.get(id) === key) return
+      this.titleLast.set(id, key)
+      scrub(q, o)
     })
+  }
+
+  /** Film letterbox: open as the visitor walks in, close for the ending. */
+  private updateLetterbox(A: Segment, local: number) {
+    const el = this.letterboxEl
+    if (!el) return
+    let lb = 0
+    if (A.id === '01') lb = 1 - smooth(clamp(local / (A.move * 0.75)))
+    else if (A.id === '11') lb = smooth(clamp((local - A.move * 0.5) / (A.len - A.move * 0.5)))
+    const v = lb.toFixed(4)
+    if (el.style.getPropertyValue('--lb') !== v) el.style.setProperty('--lb', v)
   }
 
   private updateHotspot(lookWeight: number) {
@@ -485,7 +499,7 @@ export class Player {
     const distance = Math.abs(target - window.scrollY) / this.unit
     const reduced = this.opts.reducedMotion
     if ((play || distance < 3) && !reduced) {
-      window.scrollTo({ top: target, behavior: 'smooth' })
+      this.scroller(target, true)
       return
     }
     const stage = this.stageEl
@@ -493,7 +507,7 @@ export class Player {
       stage.classList.add('is-cutting')
       await new Promise((r) => setTimeout(r, 280))
     }
-    window.scrollTo({ top: target, behavior: 'instant' as ScrollBehavior })
+    this.scroller(target, false)
     this.pos = target / this.unit
     const i = this.locate(this.pos)
     this.ensureLayers(i)

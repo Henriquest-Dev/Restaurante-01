@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { gsap } from 'gsap'
+import { SplitText } from 'gsap/SplitText'
+import Lenis from 'lenis'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ringBell, unlockAudio } from './audio/bell'
+import { ChapterCard } from './components/ChapterCard'
+import { Cursor } from './components/Cursor'
 import { ReservationDialog } from './components/ReservationDialog'
 import { CHAPTERS, manifestUrl, type ChapterId, type Manifest } from './journey/data'
 import { Player, type PlayerState } from './journey/player'
+
+gsap.registerPlugin(SplitText)
 
 const initialState: PlayerState = {
   chapter: '01',
@@ -21,9 +28,11 @@ export default function App() {
   const trackRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const hotspotRef = useRef<HTMLButtonElement>(null)
-  const progressRef = useRef<HTMLSpanElement>(null)
-  const titleRefs = useRef(new Map<ChapterId, HTMLElement>())
+  const letterboxRef = useRef<HTMLDivElement>(null)
+  const introRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<Player | null>(null)
+  const lenisRef = useRef<Lenis | null>(null)
+  const scrubs = useRef(new Map<ChapterId, (q: number, o: number) => void>())
 
   const [manifest, setManifest] = useState<Manifest | null>(null)
   const [loadError, setLoadError] = useState(false)
@@ -41,6 +50,11 @@ export default function App() {
     fetch(manifestUrl)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setManifest, () => setLoadError(true))
+  }, [])
+
+  const register = useCallback((id: ChapterId, scrub: ((q: number, o: number) => void) | null) => {
+    if (scrub) scrubs.current.set(id, scrub)
+    else scrubs.current.delete(id)
   }, [])
 
   useEffect(() => {
@@ -65,17 +79,37 @@ export default function App() {
       onFirstFrame: reveal,
     })
     player.hotspotEl = hotspotRef.current
-    player.progressEl = progressRef.current
     player.stageEl = stageRef.current
-    player.titleEls = titleRefs.current
+    player.letterboxEl = letterboxRef.current
+    player.titleScrub = scrubs.current
+
+    // Inertial wheel scrolling on desktop; touch keeps the native momentum.
+    let lenis: Lenis | null = null
+    let lenisRaf = 0
+    if (!reduced && window.matchMedia('(pointer: fine)').matches) {
+      lenis = new Lenis({ lerp: 0.085, wheelMultiplier: 0.9, smoothWheel: true })
+      lenisRef.current = lenis
+      const loop = (t: number) => {
+        lenis!.raf(t)
+        lenisRaf = requestAnimationFrame(loop)
+      }
+      lenisRaf = requestAnimationFrame(loop)
+      player.smoothing = 35
+      player.scroller = (top, smooth) =>
+        lenis!.scrollTo(top, smooth ? { duration: 1.8, easing: (t) => 1 - Math.pow(1 - t, 3) } : { immediate: true, force: true })
+    }
+
     playerRef.current = player
     // Test hook for automated checks: ?debug exposes the player.
     if (new URLSearchParams(location.search).has('debug')) (window as unknown as { __sala: Player }).__sala = player
     player.start()
-    // Never hold the visitor on the loader; the photographs stand in.
+    // Never hold the visitor on black; the photographs stand in.
     const t = setTimeout(reveal, 7000)
     return () => {
       clearTimeout(t)
+      cancelAnimationFrame(lenisRaf)
+      lenis?.destroy()
+      lenisRef.current = null
       player.destroy()
     }
   }, [manifest, reduced])
@@ -83,6 +117,25 @@ export default function App() {
   useEffect(() => {
     if (loadError) setReady(true)
   }, [loadError])
+
+  // Opening title: the letters of SALA surface from the dark, once.
+  useLayoutEffect(() => {
+    if (!ready || !introRef.current) return
+    const root = introRef.current
+    const split = SplitText.create(root.querySelector('.intro__title')!, { type: 'chars', charsClass: 'char' })
+    const tl = gsap.timeline({ delay: 0.25 })
+    if (reduced) {
+      tl.set(root, { autoAlpha: 1 })
+    } else {
+      tl.set(root, { autoAlpha: 1 })
+        .fromTo(split.chars, { autoAlpha: 0, filter: 'blur(14px)', y: 18 }, { autoAlpha: 1, filter: 'blur(0px)', y: 0, duration: 2.2, stagger: 0.18, ease: 'power3.out' })
+        .fromTo(root.querySelectorAll('.intro__meta, .intro__hint'), { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: 1.4, stagger: 0.25, ease: 'power2.out' }, '-=1.2')
+    }
+    return () => {
+      tl.kill()
+      split.revert()
+    }
+  }, [ready, reduced])
 
   /* ------------------------------------------------------ look-around input */
 
@@ -107,6 +160,7 @@ export default function App() {
       d.x = e.clientX
       d.t = e.timeStamp
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+      lenisRef.current?.stop()
       player.dragStart()
       setLookHint(false)
       return
@@ -118,7 +172,10 @@ export default function App() {
   const onPointerEnd = (e: React.PointerEvent) => {
     const d = drag.current
     if (!d || d.id !== e.pointerId) return
-    if (d.locked) playerRef.current?.dragEnd()
+    if (d.locked) {
+      playerRef.current?.dragEnd()
+      lenisRef.current?.start()
+    }
     drag.current = null
   }
 
@@ -155,11 +212,14 @@ export default function App() {
   }, [state.lookActive, reserveOpen, menuOpen])
 
   useEffect(() => {
+    const l = lenisRef.current
+    if (menuOpen || reserveOpen) l?.stop()
+    else l?.start()
     if (!menuOpen) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false)
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [menuOpen])
+  }, [menuOpen, reserveOpen])
 
   /* ------------------------------------------------------------- actions */
 
@@ -187,46 +247,42 @@ export default function App() {
     setReserveOpen(true)
   }
 
-  const chapterIndex = CHAPTERS.findIndex((c) => c.id === state.chapter)
-  const chapter = CHAPTERS[chapterIndex]
+  const chapter = CHAPTERS.find((c) => c.id === state.chapter)
 
   return (
     <>
-      <div className={`loader ${ready ? 'is-done' : ''}`} aria-hidden={ready}>
-        <span className="loader__mark">SALA</span>
-        <span className="loader__line" />
+      <div className={`blackout ${ready ? 'is-done' : ''}`} aria-hidden={ready}>
         <span className="sr-only" role="status">A carregar</span>
       </div>
 
-      <header className="bar">
+      <header className={`bar ${ready ? 'is-on' : ''}`}>
         <button className="bar__mark" onClick={() => goChapter('01')} aria-label="SALA — voltar ao início">
           SALA
         </button>
-        <div className="bar__actions">
-          <button className={`sound ${sound ? 'is-on' : ''}`} onClick={toggleSound} aria-pressed={sound} aria-label={sound ? 'Desligar som' : 'Ligar som'}>
-            <span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" />
+        <nav className="bar__links" aria-label="Ações">
+          <button className="link" onClick={toggleSound} aria-pressed={sound}>
+            Som <span className="link__state">{sound ? 'ligado' : 'desligado'}</span>
           </button>
-          <button className="pill" onClick={() => openReserve(false)}>
+          <button className="link" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen} aria-controls="menu">
+            {menuOpen ? 'Fechar' : 'Capítulos'}
+          </button>
+          <button className="link link--accent" onClick={() => openReserve(false)}>
             Reservar
           </button>
-          <button className={`burger ${menuOpen ? 'is-open' : ''}`} onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen} aria-controls="menu" aria-label={menuOpen ? 'Fechar percurso' : 'Abrir percurso'}>
-            <span aria-hidden="true" /><span aria-hidden="true" />
-          </button>
-        </div>
+        </nav>
       </header>
 
-      <nav id="menu" className={`menu ${menuOpen ? 'is-open' : ''}`} aria-label="Percurso" aria-hidden={!menuOpen} inert={!menuOpen}>
+      <nav id="menu" className={`menu ${menuOpen ? 'is-open' : ''}`} aria-label="Capítulos" aria-hidden={!menuOpen} inert={!menuOpen}>
         <ol>
           {CHAPTERS.map((c, i) => (
-            <li key={c.id} style={{ transitionDelay: menuOpen ? `${80 + i * 35}ms` : '0ms' }}>
-              <button onClick={() => goChapter(c.id)} aria-current={i === chapterIndex ? 'step' : undefined}>
-                <span className="menu__num">{c.id}</span>
+            <li key={c.id} style={{ transitionDelay: menuOpen ? `${120 + i * 40}ms` : '0ms' }}>
+              <button onClick={() => goChapter(c.id)} aria-current={c.id === state.chapter ? 'step' : undefined}>
+                <span className="menu__num">{c.numeral}</span>
                 <span className="menu__label">{c.label}</span>
               </button>
             </li>
           ))}
         </ol>
-        <button className="menu__reserve" onClick={() => openReserve(false)}>Reservar mesa</button>
       </nav>
 
       <main>
@@ -243,104 +299,72 @@ export default function App() {
             <div className="grain" aria-hidden="true" />
             <div className="shade" aria-hidden="true" />
 
-            <div className={`intro ${state.intro && ready ? 'is-on' : ''}`} aria-hidden={!state.intro}>
-              <p className="intro__eyebrow">Maputo</p>
-              <h1 className="intro__title">SALA</h1>
-              <p className="intro__sub">Restaurante</p>
-              <p className="intro__hint">
-                <span>Deslize para entrar</span>
-                <i aria-hidden="true" />
-              </p>
+            <div className={`intro ${state.intro ? '' : 'is-gone'}`}>
+              <div className="intro__inner" ref={introRef} style={{ visibility: 'hidden' }}>
+                <p className="intro__meta">Maputo</p>
+                <h1 className="intro__title">SALA</h1>
+                <p className="intro__meta">Restaurante</p>
+                <p className="intro__hint">Desça para entrar</p>
+              </div>
             </div>
 
             {CHAPTERS.filter((c) => c.title).map((c) => (
-              <div
-                key={c.id}
-                className="title"
-                ref={(el) => {
-                  if (el) titleRefs.current.set(c.id, el)
-                  else titleRefs.current.delete(c.id)
-                }}
-                style={{ opacity: 0, visibility: 'hidden' }}
-                aria-hidden={state.chapter !== c.id}
-              >
-                <span className="title__num">{c.id} <em>/ 11</em></span>
-                <h2 className="title__text">{c.title}</h2>
-                {c.line && <p className="title__line">{c.line}</p>}
-              </div>
+              <ChapterCard key={c.id} chapter={c} register={register} />
             ))}
 
             {state.chapter === '06' && (
-              <button className="pill pill--float bell-btn" onClick={sound ? ringBell : toggleSound}>
-                {sound ? 'Tocar a campainha' : 'Ligar o som'}
+              <button className="link link--float bell-link" onClick={sound ? ringBell : toggleSound}>
+                {sound ? 'Tocar a campainha' : 'Ligar o som da campainha'}
               </button>
             )}
 
             <button ref={hotspotRef} className="hotspot" data-visible="false" onClick={goTable} aria-label="Ver a mesa em destaque" tabIndex={state.lookActive ? 0 : -1}>
               <span className="hotspot__dot" aria-hidden="true" />
-              <span className="hotspot__label">A mesa</span>
+              <span className="hotspot__label">A mesa em destaque</span>
             </button>
 
             {state.lookActive && (
               <div className="look">
-                <p className={`look__hint ${lookHint ? '' : 'is-gone'}`} aria-live="polite">
-                  <span className="look__hand" aria-hidden="true" />
-                  Deslize para olhar em volta
-                </p>
-                <div className="look__controls">
-                  <button className="round" onClick={() => { playerRef.current?.nudge(-1); setLookHint(false) }} aria-label="Olhar para a esquerda">
-                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M14.5 6l-6 6 6 6" stroke="currentColor" strokeWidth="1.3" fill="none" /></svg>
-                  </button>
-                  <button className="pill" onClick={goTable}>A mesa em destaque</button>
-                  <button className="round" onClick={() => { playerRef.current?.nudge(1); setLookHint(false) }} aria-label="Olhar para a direita">
-                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9.5 6l6 6-6 6" stroke="currentColor" strokeWidth="1.3" fill="none" /></svg>
-                  </button>
-                </div>
+                <p className="look__kicker">Capítulo IX</p>
+                <p className={`look__hint ${lookHint ? '' : 'is-gone'}`}>Deslize para olhar em volta</p>
+                <p className="look__after">ou continue a descer</p>
+                <button className="look__edge look__edge--l" onClick={() => { playerRef.current?.nudge(-1); setLookHint(false) }} aria-label="Olhar para a esquerda" />
+                <button className="look__edge look__edge--r" onClick={() => { playerRef.current?.nudge(1); setLookHint(false) }} aria-label="Olhar para a direita" />
               </div>
             )}
 
             {state.tableMoment && (
-              <div className="card" role="region" aria-label="Mesa em destaque">
-                <p className="card__eyebrow">10 — A mesa em destaque</p>
-                <p className="card__title">O seu lugar<br />na SALA.</p>
-                <button className="pill pill--solid" onClick={() => openReserve(true)}>
-                  Pedir reserva
+              <div className="cta" role="region" aria-label="Mesa em destaque">
+                <button className="cta__link" onClick={() => openReserve(true)}>
+                  Pedir esta mesa
                 </button>
               </div>
             )}
 
             {state.end && (
-              <div className="finale" role="region" aria-label="Fim do percurso">
-                <p className="finale__mark">SALA</p>
-                <p className="finale__sub">Restaurante · Maputo</p>
-                <div className="finale__actions">
-                  <button className="pill pill--solid" onClick={() => openReserve(false)}>
-                    Reservar mesa
-                  </button>
-                  <button className="pill" onClick={() => goChapter('01')}>
-                    Voltar ao início
-                  </button>
+              <div className="credits" role="region" aria-label="Fim">
+                <p className="credits__mark">SALA</p>
+                <p className="credits__meta">Restaurante · Maputo</p>
+                <div className="credits__links">
+                  <button className="cta__link" onClick={() => openReserve(false)}>Reservar mesa</button>
+                  <button className="link" onClick={() => goChapter('01')}>Recomeçar</button>
                 </div>
               </div>
             )}
 
             {(state.degraded || loadError) && (
-              <p className="notice" role="status">
-                Parte da experiência não carregou. Pode continuar ou reservar.
-              </p>
+              <p className="notice" role="status">Parte da experiência não carregou. Pode continuar ou reservar.</p>
             )}
 
-            <div className="foot" aria-hidden="true">
-              <span className="foot__label">
-                <b>{chapter?.id}</b> {chapter?.label}
-              </span>
-              <span className="foot__rail"><span ref={progressRef} /></span>
-              <span className="foot__total">11</span>
+            <div className="letterbox" ref={letterboxRef} aria-hidden="true">
+              <span />
+              <span />
             </div>
           </div>
         </div>
       </main>
 
+      <Cursor active={state.lookActive && !reserveOpen && !menuOpen} label="Arrastar" />
       <ReservationDialog open={reserveOpen} featured={featured} onClose={() => setReserveOpen(false)} />
     </>
   )
