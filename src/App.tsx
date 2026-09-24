@@ -24,7 +24,7 @@ const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)'
 
 export default function App() {
   const [reduced] = useState(reducedMotion)
-  const mediaRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const hotspotRef = useRef<HTMLButtonElement>(null)
@@ -68,7 +68,7 @@ export default function App() {
       setReady(true)
     }
     const player = new Player({
-      media: mediaRef.current!,
+      canvas: canvasRef.current!,
       track: trackRef.current!,
       manifest,
       reducedMotion: reduced,
@@ -295,7 +295,7 @@ export default function App() {
             onPointerUp={onPointerEnd}
             onPointerCancel={onPointerEnd}
           >
-            <div className="media" ref={mediaRef} role="img" aria-label={`SALA — ${chapter?.label ?? ''}`} />
+            <canvas className="media" ref={canvasRef} role="img" aria-label={`SALA — ${chapter?.label ?? ''}`} />
             <div className="grain" aria-hidden="true" />
             <div className="shade" aria-hidden="true" />
 

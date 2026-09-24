@@ -3,8 +3,8 @@
  *
  * Each chapter is one storyboard sheet. Its photographs were upscaled and the
  * gaps between them filled with generated in-between frames, then encoded as
- * one video (public/assets/sala/video/section-XX.{mp4,webm}) that the scroll
- * position scrubs. Frames that restart the camera behind where the previous
+ * one image sequence (public/assets/sala/seq/section-XX/NNNN.webp) that the
+ * scroll position scrubs on a canvas. Frames that restart the camera behind where the previous
  * sheet ended are left out (see scripts/pipeline/build_media.py VIDEOS).
  */
 
@@ -62,30 +62,25 @@ export const LOOK = {
   } as Record<number, { x: number; y: number }>,
 }
 
-export interface VideoInfo {
+export interface SequenceInfo {
   frames: number
-  fps: number
   width: number
   height: number
-  /** Source photograph numbers, one every `step` video frames. */
+  /** Source photograph numbers, one every `step` frames. */
   sources: number[]
   step: number
   bytes: number
 }
 
-export type Manifest = Record<ChapterId, VideoInfo>
+export type Manifest = Record<ChapterId, SequenceInfo>
 
 const BASE = import.meta.env.BASE_URL
 
-/** H.264 MP4 where supported (Safari, Chrome), VP9 WebM otherwise. */
-const EXT = (() => {
-  const v = document.createElement('video')
-  return v.canPlayType('video/mp4; codecs="avc1.640028"') ? 'mp4' : 'webm'
-})()
-export const videoUrl = (id: ChapterId) => `${BASE}assets/sala/video/section-${id}.${EXT}`
+export const frameUrl = (id: ChapterId, i: number) =>
+  `${BASE}assets/sala/seq/section-${id}/${String(i).padStart(4, '0')}.webp`
 export const stillUrl = (id: ChapterId, frame: number) =>
   `${BASE}assets/sala/section-${id}/frame-${String(frame).padStart(2, '0')}.webp`
-export const manifestUrl = `${BASE}assets/sala/video/manifest.json`
+export const manifestUrl = `${BASE}assets/sala/seq/manifest.json`
 
 /* ------------------------------------------------------------------------ */
 

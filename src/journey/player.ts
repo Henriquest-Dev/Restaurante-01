@@ -3,13 +3,12 @@ import {
   CHAPTERS,
   HANDOVER,
   LOOK,
-  stillUrl,
-  videoUrl,
   type ChapterId,
   type Manifest,
   type Segment,
   type Timeline,
 } from './data'
+import { SequenceStore } from './sequence'
 
 export interface PlayerState {
   chapter: ChapterId
@@ -21,7 +20,7 @@ export interface PlayerState {
 }
 
 export interface PlayerOptions {
-  media: HTMLElement
+  canvas: HTMLCanvasElement
   track: HTMLElement
   manifest: Manifest
   reducedMotion: boolean
@@ -30,37 +29,45 @@ export interface PlayerOptions {
   onFirstFrame: () => void
 }
 
-interface Layer {
-  id: ChapterId
-  el: HTMLDivElement
-  video: HTMLVideoElement
-  poster: HTMLImageElement
-  backdrop: HTMLImageElement
-  ready: boolean
-  failed: boolean
-  loaded: boolean
-  shownFrame: number
-  posterSrc: string
-}
-
 const mod = (n: number, m: number) => ((n % m) + m) % m
 const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v))
 const smooth = (t: number) => t * t * (3 - 2 * t)
 
+/** Frames held decoded behind / ahead of the playhead. */
+const DECODE_BEHIND = 6
+const DECODE_AHEAD = 16
+/** Frames downloaded ahead of the playhead in the current chapter. */
+const FETCH_AHEAD = 80
+
+interface Draw {
+  id: ChapterId
+  frame: number
+  alpha: number
+  focalX: number
+}
+
 export class Player {
   readonly timeline: Timeline
-  private layers = new Map<ChapterId, Layer>()
+  readonly store = new SequenceStore(6)
+  private ctx: CanvasRenderingContext2D
   private unit = 1
   private lastW = 0
   private lastH = 0
+  private W = 0
+  private H = 0
   private raf = 0
   private last = 0
   /** Displayed scroll position (viewport heights), eased toward the real one. */
   private pos = 0
+  private lastTarget = 0
+  private direction = 1
   private state: PlayerState | null = null
   private cleanup: (() => void)[] = []
   private firstFrameSent = false
   private prevBellFrame = -1
+  private dirty = true
+  private lastKey = ''
+  private tiny = document.createElement('canvas')
 
   /** Look-around angle, in source photographs (0 = photo 1). */
   private angle = 0
@@ -77,13 +84,16 @@ export class Player {
   titleScrub = new Map<ChapterId, (q: number, o: number) => void>()
   private titleLast = new Map<ChapterId, string>()
   /** Easing time constant for the displayed scroll position (ms). */
-  smoothing = 110
+  smoothing = 90
   /** Scrolls the page; replaced when a smooth-scroll library owns scrolling. */
   scroller = (top: number, smooth: boolean) =>
     window.scrollTo({ top, behavior: smooth ? 'smooth' : ('instant' as ScrollBehavior) })
 
   constructor(private opts: PlayerOptions) {
     this.timeline = buildTimeline(opts.manifest)
+    this.ctx = opts.canvas.getContext('2d', { alpha: false })!
+    this.tiny.width = 32
+    this.tiny.height = 32
   }
 
   /* ------------------------------------------------------------ lifecycle */
@@ -91,15 +101,14 @@ export class Player {
   start() {
     this.measure(true)
     const onResize = () => this.measure(false)
-    const unlock = () => this.unlockIOS()
     window.addEventListener('resize', onResize)
-    window.addEventListener('touchstart', unlock, { once: true, passive: true })
     this.cleanup.push(
       () => window.removeEventListener('resize', onResize),
-      () => window.removeEventListener('touchstart', unlock),
+      this.store.onChange(() => {
+        this.dirty = true
+      }),
     )
     this.pos = this.target()
-    this.ensureLayers(0)
     const tick = (t: number) => {
       const dt = this.last ? Math.min(64, t - this.last) : 16
       this.last = t
@@ -112,12 +121,7 @@ export class Player {
   destroy() {
     cancelAnimationFrame(this.raf)
     this.cleanup.forEach((f) => f())
-    this.layers.forEach((l) => {
-      l.video.removeAttribute('src')
-      l.video.load()
-      l.el.remove()
-    })
-    this.layers.clear()
+    this.store.destroy()
   }
 
   /* --------------------------------------------------------------- layout */
@@ -138,139 +142,22 @@ export class Player {
         this.pos = p
       }
     }
-    this.layers.forEach((l) => this.fit(l))
-  }
-
-  /** Portrait videos on a landscape screen are shown whole over a blurred copy. */
-  private fit(l: Layer) {
-    const v = this.opts.manifest[l.id]
-    const contain = v.height > v.width * 1.15 && window.innerWidth > window.innerHeight * 1.1
-    l.el.classList.toggle('is-contain', contain)
+    const c = this.opts.canvas
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    this.W = c.clientWidth || w
+    this.H = c.clientHeight || h
+    c.width = Math.round(this.W * dpr)
+    c.height = Math.round(this.H * dpr)
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    this.ctx.imageSmoothingEnabled = true
+    this.ctx.imageSmoothingQuality = 'high'
+    this.lastKey = ''
+    this.dirty = true
   }
 
   private target() {
     return clamp(window.scrollY / this.unit, 0, this.timeline.total)
   }
-
-  /* --------------------------------------------------------------- layers */
-
-  private layer(id: ChapterId): Layer {
-    let l = this.layers.get(id)
-    if (l) return l
-    const el = document.createElement('div')
-    el.className = 'layer'
-    el.dataset.chapter = id
-    const backdrop = document.createElement('img')
-    backdrop.className = 'layer__backdrop'
-    backdrop.alt = ''
-    const poster = document.createElement('img')
-    poster.className = 'layer__poster'
-    poster.alt = ''
-    poster.decoding = 'async'
-    const video = document.createElement('video')
-    video.className = 'layer__video'
-    video.muted = true
-    video.playsInline = true
-    video.setAttribute('playsinline', '')
-    video.setAttribute('muted', '')
-    video.preload = 'auto'
-    video.disablePictureInPicture = true
-    video.setAttribute('aria-hidden', 'true')
-    el.append(backdrop, poster, video)
-    this.opts.media.appendChild(el)
-    const focal = CHAPTERS.find((c) => c.id === id)?.focalX ?? 0.5
-    const op = `${focal * 100}% 50%`
-    video.style.objectPosition = op
-    poster.style.objectPosition = op
-    l = {
-      id, el, video, poster, backdrop,
-      ready: false, failed: false, loaded: false,
-      shownFrame: -1, posterSrc: '',
-    }
-    const layer = l
-    video.addEventListener('loadeddata', () => {
-      layer.ready = true
-      layer.shownFrame = -1
-    })
-    video.addEventListener('seeked', () => {
-      if (layer.ready) el.classList.add('has-video')
-      if (layer.id === '01' && !this.firstFrameSent) {
-        this.firstFrameSent = true
-        this.opts.onFirstFrame()
-      }
-    })
-    video.addEventListener('error', () => {
-      layer.failed = true
-      el.classList.remove('has-video')
-    })
-    poster.addEventListener('error', () => {
-      if (layer.failed) el.classList.add('is-broken')
-    })
-    this.fit(l)
-    this.layers.set(id, l)
-    return l
-  }
-
-  private load(l: Layer) {
-    if (l.loaded) return
-    l.loaded = true
-    l.video.src = videoUrl(l.id)
-    l.video.load()
-  }
-
-  private unload(l: Layer) {
-    if (!l.loaded) return
-    l.loaded = false
-    l.ready = false
-    l.shownFrame = -1
-    l.el.classList.remove('has-video')
-    l.video.removeAttribute('src')
-    l.video.load()
-  }
-
-  /** Keep the current chapter and its neighbours loaded; release the rest. */
-  private ensureLayers(i: number) {
-    const segs = this.timeline.segments
-    segs.forEach((s, j) => {
-      const near = j >= i - 1 && j <= i + 2
-      if (near) this.load(this.layer(s.id))
-      else {
-        const l = this.layers.get(s.id)
-        if (l) this.unload(l)
-      }
-    })
-  }
-
-  /** iOS only paints a paused video's frames after it has played once. */
-  private unlockIOS() {
-    this.layers.forEach((l) => {
-      if (!l.loaded) return
-      const p = l.video.play()
-      if (p) p.then(() => l.video.pause(), () => {})
-    })
-  }
-
-  /** Show video frame `f` (float) of a layer, falling back to the photograph. */
-  private show(l: Layer, f: number) {
-    const v = this.opts.manifest[l.id]
-    const frame = Math.round(clamp(f, 0, v.frames - 1))
-    // The nearest source photograph: shown until the video paints, if the
-    // video fails, and (blurred) behind portrait videos on wide screens.
-    const photo = v.sources[Math.min(v.sources.length - 1, Math.round(frame / v.step))]
-    const src = stillUrl(l.id, photo)
-    const needPoster = !l.el.classList.contains('has-video') || l.failed
-    if (needPoster && src !== l.posterSrc) {
-      l.posterSrc = src
-      l.poster.src = src
-    }
-    if (l.el.classList.contains('is-contain') && l.backdrop.getAttribute('src') !== src) l.backdrop.src = src
-    if (!l.ready || l.failed || frame === l.shownFrame || l.video.seeking) return
-    l.shownFrame = frame
-    // Aim at the middle of the frame so rounding never lands on its neighbour.
-    l.video.currentTime = (frame + 0.5) / v.fps
-  }
-
-  /* ------------------------------------------------------------ per frame */
 
   private locate(p: number) {
     const segs = this.timeline.segments
@@ -279,15 +166,105 @@ export class Player {
     return i
   }
 
+  /** Frame index (float) of a segment at a local scroll position. */
+  private frameAt(s: Segment, local: number) {
+    const v = this.opts.manifest[s.id]
+    if (s.id === '09') return mod(this.angle, LOOK.count) * v.step
+    return clamp(local / s.move) * (v.frames - 1)
+  }
+
+  private focalFor(id: ChapterId) {
+    if (id === '09') {
+      const a = mod(this.angle, LOOK.count)
+      const n0 = Math.floor(a)
+      const u = a - n0
+      const fx = (n: number) => LOOK.focalByFrame[mod(n, LOOK.count) + 1] ?? LOOK.focalX
+      return fx(n0) * (1 - u) + fx(n0 + 1) * u
+    }
+    return CHAPTERS.find((c) => c.id === id)?.focalX ?? 0.5
+  }
+
+  /* ------------------------------------------------------------ loading */
+
+  private plan(i: number, frameA: number, handoverNear: boolean) {
+    const segs = this.timeline.segments
+    const A = segs[i]
+    const B = segs[i + 1]
+    const P = segs[i - 1]
+    const vA = this.opts.manifest[A.id]
+    const fetch: { id: ChapterId; i: number }[] = []
+    const decode: { id: ChapterId; i: number }[] = []
+    const f = Math.round(frameA)
+    const wrap = A.id === '09'
+    const push = (list: typeof fetch, id: ChapterId, n: number, frames: number, w: boolean) => {
+      const idx = w ? mod(n, frames) : n
+      if (idx >= 0 && idx < frames) list.push({ id, i: idx })
+    }
+    // Decode around the playhead, biased toward the scroll direction.
+    const fwd = this.direction >= 0 ? 1 : -1
+    for (let d = 0; d <= DECODE_AHEAD; d++) push(decode, A.id, f + d * fwd, vA.frames, wrap)
+    for (let d = 1; d <= DECODE_BEHIND; d++) push(decode, A.id, f - d * fwd, vA.frames, wrap)
+    if (B) for (let d = 0; d < (handoverNear ? 6 : 2); d++) push(decode, B.id, d, this.opts.manifest[B.id].frames, false)
+    // Downloads: nearest first, then the rest of this chapter, then the start of the next.
+    for (let d = 0; d <= FETCH_AHEAD; d++) {
+      push(fetch, A.id, f + d * fwd, vA.frames, wrap)
+      if (d > 0 && d <= 12) push(fetch, A.id, f - d * fwd, vA.frames, wrap)
+    }
+    if (B) {
+      const vB = this.opts.manifest[B.id]
+      for (let d = 0; d < Math.min(vB.frames, 40); d++) push(fetch, B.id, d, vB.frames, false)
+    }
+    if (P) {
+      const vP = this.opts.manifest[P.id]
+      for (let d = 1; d <= 8; d++) push(fetch, P.id, vP.frames - d, vP.frames, false)
+    }
+    this.store.plan(fetch, decode)
+    const keep = new Set<ChapterId>([A.id])
+    if (B) keep.add(B.id)
+    if (P) keep.add(P.id)
+    if (segs[i + 2]) keep.add(segs[i + 2].id)
+    this.store.forget(keep)
+  }
+
+  /** Draw statistics, read by automated checks. */
+  readonly stats = { draws: 0, misses: 0 }
+
+  /** The decoded frame closest to `f` in a chapter, searching outward. */
+  private nearest(id: ChapterId, f: number) {
+    const v = this.opts.manifest[id]
+    const wrap = id === '09'
+    const r = Math.round(f)
+    for (let d = 0; d < 40; d++) {
+      for (const n of d === 0 ? [r] : [r - d, r + d]) {
+        const idx = wrap ? mod(n, v.frames) : n
+        if (idx < 0 || idx >= v.frames) continue
+        const bmp = this.store.get(id, idx)
+        if (bmp) {
+          this.stats.draws++
+          if (d > 0) this.stats.misses++
+          return bmp
+        }
+      }
+    }
+    return null
+  }
+
+  /* ------------------------------------------------------------ per frame */
+
   private frame(dt: number) {
     const reduced = this.opts.reducedMotion
     const target = this.target()
-    // Critically damped easing toward the scroll position: the image keeps
-    // gliding a moment after a swipe instead of stopping in steps.
+    if (Math.abs(target - this.lastTarget) > 1e-4) this.direction = target > this.lastTarget ? 1 : -1
+    this.lastTarget = target
+    // Ease the displayed position toward the scroll position, so the film
+    // glides between scroll events instead of stepping.
     const k = reduced || this.smoothing <= 0 ? 1 : 1 - Math.exp(-dt / this.smoothing)
+    const before = this.pos
     this.pos += (target - this.pos) * k
-    if (Math.abs(target - this.pos) < 0.0004) this.pos = target
-    this.animateLook(dt)
+    if (Math.abs(target - this.pos) < 0.0003) this.pos = target
+    const lookMoved = this.animateLook(dt)
+    if (before === this.pos && !lookMoved && !this.dirty) return
+    this.dirty = false
 
     const segs = this.timeline.segments
     const i = this.locate(this.pos)
@@ -304,68 +281,79 @@ export class Player {
       } else if (A.exit === 'dissolve') {
         oB = smooth(hand)
       } else {
-        // Dip through dark: the two chapters never overlap.
+        // Dip through black: the two chapters never overlap.
         oA = 1 - smooth(clamp(hand * 2))
         oB = smooth(clamp(hand * 2 - 1))
       }
     }
 
-    this.ensureLayers(i)
-    this.layers.forEach((l) => {
-      const o = l.id === A.id ? oA : B && l.id === B.id ? oB : 0
-      if (l.el.style.opacity !== String(o)) l.el.style.opacity = String(o)
-    })
+    const fA = this.frameAt(A, local)
+    this.plan(i, fA, local > A.len - HANDOVER * 3)
 
-    this.drive(A, local)
-    if (B && oB > 0) this.drive(B, 0)
-    // Pre-seek the next chapter to its first frame so the hand-over is instant.
-    else if (B && local > A.len - HANDOVER * 3) this.drive(B, 0)
+    const draws: Draw[] = [{ id: A.id, frame: fA, alpha: oA, focalX: this.focalFor(A.id) }]
+    if (B && oB > 0) draws.push({ id: B.id, frame: 0, alpha: oB, focalX: this.focalFor(B.id) })
+    this.render(draws)
 
-    // Hotspot and titles.
+    if (A.id === '06') {
+      // The finger meets the bell on source photo 5 (the 4th in this sequence).
+      const hit = 3 * this.opts.manifest['06'].step
+      if (this.prevBellFrame >= 0 && this.prevBellFrame < hit && fA >= hit) this.opts.onBell()
+      this.prevBellFrame = fA
+    }
+
     const lookWeight = A.id === '09' ? oA : B?.id === '09' ? oB : 0
     this.updateHotspot(lookWeight)
     this.updateTitles(A, local, oA, B, oB)
     this.updateLetterbox(A, local)
 
-    const tableSeg = segs.find((s) => s.id === '10')!
-    const onTable = A.id === '10' && local > tableSeg.move - 0.05 && hand === 0
+    const table = segs.find((s) => s.id === '10')!
     this.emit({
       chapter: hand > 0.5 && B ? B.id : A.id,
       lookActive: lookWeight > 0.5,
-      tableMoment: onTable,
+      tableMoment: A.id === '10' && local > table.move - 0.05 && hand === 0,
       end: i === segs.length - 1 && local > A.move * 0.9,
       intro: i === 0 && local < 0.3,
-      degraded: [...this.layers.values()].some((l) => l.failed),
+      degraded: this.store.anyFailed(),
     })
   }
 
-  /** Put a segment's video at the frame for its local scroll position. */
-  private drive(s: Segment, local: number) {
-    const l = this.layer(s.id)
-    const v = this.opts.manifest[s.id]
-    if (s.id === '09') {
-      const f = mod(this.angle, LOOK.count) * v.step
-      this.show(l, f)
-      const a = mod(this.angle, LOOK.count)
-      const n0 = Math.floor(a)
-      const u = a - n0
-      const fx = (n: number) => LOOK.focalByFrame[mod(n, LOOK.count) + 1] ?? LOOK.focalX
-      const focal = fx(n0) * (1 - u) + fx(n0 + 1) * u
-      const op = `${(focal * 100).toFixed(2)}% 50%`
-      if (l.video.style.objectPosition !== op) {
-        l.video.style.objectPosition = op
-        l.poster.style.objectPosition = op
+  private render(draws: Draw[]) {
+    const resolved = draws
+      .map((d) => ({ ...d, bmp: this.nearest(d.id, d.frame) }))
+      .filter((d) => d.bmp && d.alpha > 0.001)
+    // Keep the last picture on screen rather than flashing black while a
+    // frame is still on its way.
+    if (!resolved.length && draws.some((d) => d.alpha > 0.5)) return
+    const key =
+      resolved.map((d) => `${d.id}${Math.round(d.frame)}:${d.alpha.toFixed(3)}:${d.focalX.toFixed(3)}:${d.bmp!.width}`).join('|')
+    if (key === this.lastKey) return
+    this.lastKey = key
+    const { ctx, W, H } = this
+    ctx.globalAlpha = 1
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, W, H)
+    for (const d of resolved) {
+      const bmp = d.bmp!
+      const contain = bmp.height > bmp.width * 1.15 && W > H * 1.1
+      ctx.globalAlpha = d.alpha
+      if (contain) {
+        // Portrait frame on a wide screen: whole frame over a soft copy of itself.
+        this.tiny.getContext('2d')!.drawImage(bmp, 0, 0, 32, 32)
+        const s = Math.max(W, H) * 1.2
+        ctx.drawImage(this.tiny, (W - s) / 2, (H - s) / 2, s, s)
+        ctx.fillStyle = `rgba(8,5,3,${0.55 * d.alpha})`
+        ctx.fillRect(0, 0, W, H)
       }
-      return
+      const s = contain ? Math.min(W / bmp.width, H / bmp.height) : Math.max(W / bmp.width, H / bmp.height)
+      const w = bmp.width * s
+      const h = bmp.height * s
+      const x = contain ? (W - w) / 2 : clamp(W / 2 - d.focalX * w, W - w, 0)
+      ctx.drawImage(bmp, x, (H - h) / 2, w, h)
     }
-    const p = clamp(local / s.move)
-    const f = p * (v.frames - 1)
-    this.show(l, f)
-    if (s.id === '06') {
-      // The finger meets the bell on source photo 5 (the 4th in this video).
-      const hit = 3 * v.step
-      if (this.prevBellFrame >= 0 && this.prevBellFrame < hit && f >= hit) this.opts.onBell()
-      this.prevBellFrame = f
+    ctx.globalAlpha = 1
+    if (!this.firstFrameSent && resolved.some((d) => d.id === '01')) {
+      this.firstFrameSent = true
+      this.opts.onFirstFrame()
     }
   }
 
@@ -413,20 +401,16 @@ export class Player {
     const n = Math.round(a)
     const photo = mod(n, LOOK.count) + 1
     const spot = LOOK.hotspots[photo]
-    const l = this.layers.get('09')
-    const settled = Math.abs(a - n) < 0.2 || Math.abs(a - n - LOOK.count) < 0.2
-    if (lookWeight > 0.9 && spot && settled && l && !this.dragging) {
+    const settled = Math.abs(a - n) < 0.2
+    if (lookWeight > 0.9 && spot && settled && !this.dragging) {
       const v = this.opts.manifest['09']
-      const W = window.innerWidth
-      const H = window.innerHeight
+      const { W, H } = this
       const s = Math.max(W / v.width, H / v.height)
       const w = v.width * s
       const h = v.height * s
-      const focal = LOOK.focalByFrame[photo] ?? LOOK.focalX
-      const x0 = (W - w) * focal
-      const y0 = (H - h) / 2
+      const x0 = clamp(W / 2 - (LOOK.focalByFrame[photo] ?? LOOK.focalX) * w, W - w, 0)
       const x = x0 + spot.x * w
-      const y = y0 + spot.y * h
+      const y = (H - h) / 2 + spot.y * h
       if (x > 32 && x < W - 32 && y > 90 && y < H - 150) {
         el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`
         el.dataset.side = x > W * 0.6 ? 'left' : 'right'
@@ -468,14 +452,17 @@ export class Player {
     this.angleTarget = Math.round(this.angleTarget) + dir
   }
 
+  /** Returns whether the angle moved. */
   private animateLook(dt: number) {
+    const before = this.angle
     if (this.opts.reducedMotion) {
       this.angle = this.dragging ? this.angleTarget : Math.round(this.angleTarget)
-      return
+    } else {
+      const k = 1 - Math.exp(-dt / (this.dragging ? 60 : 180))
+      this.angle += (this.angleTarget - this.angle) * k
+      if (Math.abs(this.angleTarget - this.angle) < 0.001) this.angle = this.angleTarget
     }
-    const k = 1 - Math.exp(-dt / (this.dragging ? 60 : 180))
-    this.angle += (this.angleTarget - this.angle) * k
-    if (Math.abs(this.angleTarget - this.angle) < 0.001) this.angle = this.angleTarget
+    return this.angle !== before
   }
 
   /* ----------------------------------------------------------- navigation */
@@ -505,19 +492,17 @@ export class Player {
     const stage = this.stageEl
     if (stage && !reduced) {
       stage.classList.add('is-cutting')
-      await new Promise((r) => setTimeout(r, 280))
+      await new Promise((r) => setTimeout(r, 300))
     }
+    const p = target / this.unit
+    const i = this.locate(p)
+    const s = this.timeline.segments[i]
+    const f = Math.round(this.frameAt(s, p - s.start))
+    this.plan(i, f, false)
+    await this.store.whenReady(s.id, f, 2500)
     this.scroller(target, false)
-    this.pos = target / this.unit
-    const i = this.locate(this.pos)
-    this.ensureLayers(i)
-    const l = this.layer(this.timeline.segments[i].id)
-    if (!l.ready && !l.failed) {
-      await Promise.race([
-        new Promise((r) => l.video.addEventListener('loadeddata', r, { once: true })),
-        new Promise((r) => setTimeout(r, 1500)),
-      ])
-    }
+    this.pos = p
+    this.dirty = true
     if (stage && !reduced) requestAnimationFrame(() => stage.classList.remove('is-cutting'))
   }
 }

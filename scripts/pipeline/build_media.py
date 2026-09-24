@@ -3,14 +3,14 @@
 1. crop every cell from the original PNG sheets (scripts/crop_frames.py boxes)
 2. upscale x4 with Real-ESRGAN (x4plus)
 3. per chapter: bring frames to one size, generate in-between frames with
-   RIFE v4.26 and encode a scroll-scrubbable H.264 MP4
+   RIFE v4.26 and export them as a WebP image sequence for canvas scrubbing
 4. export the upscaled stills as WebP (posters / fallback)
 
 Usage:
   RIFE_DIR=<Practical-RIFE with train_log> ESRGAN=<RealESRGAN_x4plus.pth> \
   python3 scripts/pipeline/build_media.py <sheets-dir> <work-dir> <public-dir>
 """
-import json, os, subprocess, sys, time
+import json, os, sys, time
 import numpy as np
 from PIL import Image
 
@@ -19,9 +19,9 @@ sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from crop_frames import SHEETS, trim_dark  # noqa: E402
 
-FFMPEG = os.environ.get('FFMPEG', 'ffmpeg')
-INBETWEEN = int(os.environ.get('INBETWEEN', '11'))  # frames generated between two source frames
-FPS = 30
+
+INBETWEEN = int(os.environ.get('INBETWEEN', '7'))  # frames generated between two source frames
+QUALITY = int(os.environ.get('QUALITY', '80'))
 
 # Source frames played by each video, in order (see src/journey/data.ts).
 VIDEOS = {
@@ -83,10 +83,10 @@ def even(n):
 
 
 def chapter_size(frames):
-    """Common crop (smallest w/h) and output size: short side up to 1280, long side up to 2048."""
+    """Common crop (smallest w/h) and output size: short side up to 1152, long side up to 1920."""
     cw = min(im.width for im in frames)
     ch = min(im.height for im in frames)
-    s = min(1280 / min(cw, ch), 2048 / max(cw, ch), 1.0)
+    s = min(1152 / min(cw, ch), 1920 / max(cw, ch), 1.0)
     return (cw, ch), (even(cw * s), even(ch * s))
 
 
@@ -96,29 +96,36 @@ def center_crop(im, w, h):
     return im.crop((x, y, x + w, y + h))
 
 
-def stage_videos(work, public, only=None):
+def stage_sequences(work, public, only=None):
+    """Per chapter: common size, RIFE in-betweens, WebP image sequence.
+
+    Image sequences drawn on a canvas scrub far more smoothly than seeking a
+    compressed video, especially on phones, and keep full photographic quality.
+    """
     import rife
     import torch
     torch.set_num_threads(os.cpu_count())
-    manifest = {}
     times = [(k + 1) / (INBETWEEN + 1) for k in range(INBETWEEN)]
+    mpath = os.path.join(public, 'seq', 'manifest.json')
     for sec, seq in VIDEOS.items():
         if only and sec not in only:
             continue
         srcs = [Image.open(os.path.join(work, 'up', sec, f'{n:02d}.png')).convert('RGB') for n in seq]
         (cw, ch), (ow, oh) = chapter_size(srcs)
         frames = [np.asarray(center_crop(im, cw, ch).resize((ow, oh), Image.LANCZOS)) for im in srcs]
-        d = os.path.join(work, 'seq', sec)
+        d = os.path.join(public, 'seq', f'section-{sec}')
         os.makedirs(d, exist_ok=True)
+        for f in os.listdir(d):
+            os.remove(os.path.join(d, f))
         idx = 0
 
         def put(a):
             nonlocal idx
-            Image.fromarray(a).save(os.path.join(d, f'{idx:05d}.png'), compress_level=1)
+            Image.fromarray(a).save(os.path.join(d, f'{idx:04d}.webp'), quality=QUALITY, method=6)
             idx += 1
 
         for i in range(len(frames) - 1):
-            cache = os.path.join(work, 'rife', sec, f'{i:02d}.npz')
+            cache = os.path.join(work, 'rife', f'{sec}-{INBETWEEN}-{ow}', f'{i:02d}.npz')
             if os.path.exists(cache):
                 mids = list(np.load(cache)['f'])
             else:
@@ -132,37 +139,14 @@ def stage_videos(work, public, only=None):
         loop = sec == '09'
         if not loop:
             put(frames[-1])
-        count = idx
-        out = os.path.join(public, 'video', f'section-{sec}.mp4')
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        # A keyframe at every source frame keeps seeks cheap while scrubbing;
-        # no B-frames so any frame decodes from the previous ones only.
-        gop = INBETWEEN + 1
-        subprocess.run([
-            FFMPEG, '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', os.path.join(d, '%05d.png'),
-            '-c:v', 'libx264', '-preset', 'slow', '-crf', '21', '-pix_fmt', 'yuv420p',
-            '-g', str(gop), '-keyint_min', str(gop), '-sc_threshold', '0', '-bf', '0',
-            '-movflags', '+faststart', '-an', out,
-        ], check=True)
-        # VP9 WebM for browsers without H.264 (and usually smaller).
-        subprocess.run([
-            FFMPEG, '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', os.path.join(d, '%05d.png'),
-            '-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0', '-row-mt', '1', '-cpu-used', '2',
-            '-g', str(gop), '-keyint_min', str(gop), '-auto-alt-ref', '0', '-lag-in-frames', '0',
-            '-pix_fmt', 'yuv420p', '-an', out.replace('.mp4', '.webm'),
-        ], check=True)
-        for f in os.listdir(d):
-            os.remove(os.path.join(d, f))
-        manifest[sec] = {
-            'frames': count, 'fps': FPS, 'width': ow, 'height': oh,
-            'sources': seq[:-1] if loop else seq, 'step': INBETWEEN + 1,
-            'bytes': os.path.getsize(out),
-        }
-        log(f'encoded {out} {ow}x{oh} {count} frames {os.path.getsize(out) // 1024} KB')
-        mpath = os.path.join(public, 'video', 'manifest.json')
+        size = sum(os.path.getsize(os.path.join(d, f)) for f in os.listdir(d))
         old = json.load(open(mpath)) if os.path.exists(mpath) else {}
-        old.update(manifest)
+        old[sec] = {
+            'frames': idx, 'width': ow, 'height': oh,
+            'sources': seq[:-1] if loop else seq, 'step': INBETWEEN + 1, 'bytes': size,
+        }
         json.dump(old, open(mpath, 'w'), indent=1, sort_keys=True)
+        log(f'sequence {sec}: {ow}x{oh}, {idx} frames, {size // 1024} KB')
 
 
 def stage_stills(work, public):
@@ -186,8 +170,8 @@ if __name__ == '__main__':
         stage_crop(src, work)
     if 'upscale' in stages:
         stage_upscale(work, os.environ['ESRGAN'])
-    if 'videos' in stages:
-        stage_videos(work, public, only)
+    if 'sequences' in stages:
+        stage_sequences(work, public, only)
     if 'stills' in stages:
         stage_stills(work, public)
     log('done')
