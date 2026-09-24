@@ -39,6 +39,30 @@ VIDEOS = {
 }
 
 
+# Pairs (0-based, per chapter) whose photographs differ too much for RIFE:
+# its in-betweens melt (hands appearing, doors swinging, large turns). These
+# get a short film dissolve instead: hold, quick crossfade, hold.
+DISSOLVE_PAIRS = {
+    '03': [0, 4, 5],
+    '05': [2],
+    '06': [0, 1],
+    '07': [0],
+    '09': [1, 8, 9, 10, 11, 12],
+    '10': [4],
+    '11': [1, 3],
+}
+
+
+def dissolve(a, b, times):
+    out = []
+    for t in times:
+        # Most of the pair holds on a photograph; the blend is brief.
+        u = min(1.0, max(0.0, (t - 0.3) / 0.4))
+        u = u * u * (3 - 2 * u)
+        out.append((a.astype(np.float32) * (1 - u) + b.astype(np.float32) * u).round().astype(np.uint8))
+    return out
+
+
 def log(*a):
     print(time.strftime('%H:%M:%S'), *a, flush=True)
 
@@ -126,7 +150,9 @@ def stage_sequences(work, public, only=None):
 
         for i in range(len(frames) - 1):
             cache = os.path.join(work, 'rife', f'{sec}-{INBETWEEN}-{ow}', f'{i:02d}.npz')
-            if os.path.exists(cache):
+            if i in DISSOLVE_PAIRS.get(sec, []):
+                mids = dissolve(frames[i], frames[i + 1], times)
+            elif os.path.exists(cache):
                 mids = list(np.load(cache)['f'])
             else:
                 mids = rife.between(frames[i], frames[i + 1], times)
