@@ -138,7 +138,7 @@
   .mn { font-size: 0.85vw; }
   .mn-main { width: min(3000px, 100% - 8vw); grid-template-columns: 40px minmax(0, 1.05fr) minmax(0, 1.15fr) minmax(250px, 0.75fr); }
   .mn-stage { max-width: none; }
-  .mn-line--thin { font-size: 14.5cqi; }
+  .mn-line--thin { font-size: 12.5cqi; }
   .mn-line--bold { font-size: 14.5cqi; }
   .mn-thumbs ul { grid-auto-columns: 7vw; }
   .mn-arrow { width: 3vw; height: 3vw; }
