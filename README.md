@@ -18,8 +18,11 @@ To connect a real booking service, set `VITE_RESERVATION_ENDPOINT` at build time
 The journey is one continuous film, `media/sala.webm` (1920×1080, 39 s, supplied by the client). It is exported as WebP frames at 20 fps in two variants: `wide`, the full frame for landscape screens, and `tall`, a 720×1080 centre crop for phones in portrait:
 
 ```bash
-FFMPEG=ffmpeg python3 scripts/pipeline/film_frames.py media/sala.webm public/assets/sala/film
+ESRGAN_GENERAL=realesr-general-x4v3.pth FFMPEG=ffmpeg \
+  python3 scripts/pipeline/upscale_film.py media/sala.webm public/assets/sala/film
 ```
+
+Each frame is halved (removing compression noise), upscaled x4 with Real-ESRGAN and exported as `wide` 1920×1080, `xl` 2560×1440 (large screens / TVs) and `tall` 960×1440 (phones). About 80 min on a 4-core CPU. `film_frames.py` is the quick, non-upscaled alternative.
 
 `src/journey/data.ts` maps the film's scenes to chapters, using time ranges in seconds. The film already fades through black between scenes:
 
