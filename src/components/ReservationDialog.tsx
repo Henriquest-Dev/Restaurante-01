@@ -130,7 +130,7 @@ export function ReservationDialog({ open, featured, onClose }: Props) {
         if (e.target === ref.current) close()
       }}
     >
-      <div className="reserve__photo" aria-hidden="true" style={{ backgroundImage: `url(${stillUrl('10', 7)})` }} />
+      <div className="reserve__photo" aria-hidden="true" style={{ backgroundImage: `url(${stillUrl()})` }} />
       <div className="reserve__inner">
         <header className="reserve__head">
           <div>

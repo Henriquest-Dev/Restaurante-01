@@ -1,6 +1,6 @@
 # SALA — Maputo
 
-A mobile-first, scroll-driven website for SALA. The visitor walks from the street, through the door and reception, into the dining room, looks around, and reaches the featured table to request a booking. Every camera move comes from the storyboard photographs.
+A mobile-first, scroll-driven website for SALA. The visitor opens the door, walks past reception, rings the bell, crosses the dining room and sits at a table, then requests a booking. Scrolling drives the film frame by frame.
 
 ## Run
 
@@ -11,43 +11,40 @@ npm run build      # type-check + production build in dist/
 npm run preview    # serve the build
 ```
 
-To connect a real booking service, set `VITE_RESERVATION_ENDPOINT` at build time (see [Reservations](#reservations)).
+To connect a real booking service, set `VITE_RESERVATION_ENDPOINT` at build time (see [Reservations](#reservations)). Pushes to the branch deploy to GitHub Pages (`.github/workflows/pages.yml`).
 
-## Frames
+## The film
 
-`public/assets/sala/section-01 … section-11/frame-NN.webp` hold 96 frames cropped from the 11 storyboard sheets. They are served from `/assets/sala/...`. To regenerate them:
+The journey is one continuous film, `media/sala.webm` (1920×1080, 39 s, supplied by the client). It is exported as WebP frames at 20 fps in two variants: `wide`, the full frame for landscape screens, and `tall`, a 720×1080 centre crop for phones in portrait:
 
 ```bash
-python3 scripts/crop_frames.py <folder-with-the-sheet-pngs> public/assets/sala   # needs Pillow + numpy
+FFMPEG=ffmpeg python3 scripts/pipeline/film_frames.py media/sala.webm public/assets/sala/film
 ```
 
-| Section | Sheet | Grid | Frames |
-|---|---|---|---|
-| 01 Exterior | 4adc0e9c | 4×2 | 8 |
-| 02 Approach | ed77ea65 | 4×2 | 8 |
-| 03 Door | 8bb60506 | 4×2 | 8 |
-| 04 Entering | 7e1c5c4b | 5×2 | 10 |
-| 05 Reception | 41cb5ba6 | 4×2 | 8 |
-| 06 Bell | fcfb3b7a | 3×2 | 6 |
-| 07 Walk | 137b5c4e | 5×2 | 10 |
-| 08 Reveal | 6a0e7a4c | 5×2 | 10 |
-| 09 Look-around | f8af60e7 | **4×4** | **16** |
-| 10 Table | 46fd7a01 | 7×1 | 7 |
-| 11 Final view | 3385de9f | 5×1 | 5 |
+`src/journey/data.ts` maps the film's scenes to chapters, using time ranges in seconds. The film already fades through black between scenes:
 
-The script uses the cell boxes measured on each sheet. Where a gutter is not visibly dark (row 1 of sheet 04), it uses the image seam instead. Afterwards it trims up to 3 px of leftover gutter from each edge. Each source frame is roughly 280–660 px on its long side, so there is no separate desktop variant; the browser scales the frames up.
+| Chapter | Film | Content |
+|---|---|---|
+| I A porta | 0–5 s | Hand opens the glass door |
+| II A entrada | 5–11.9 s | Walk in towards reception |
+| III A campainha | 11.9–15.5 s | Bell pressed, pan across the room |
+| IV A sala | 15.5–23.4 s | Dining room reveal |
+| V A mesa | 23.4–29 s | Walk to the table |
+| VI Sentar | 29–39 s | Sitting down at the table, then reservation |
+
+`pace` sets how many viewport heights of scrolling one second of film takes.
 
 ## How it works
 
-- `src/journey/data.ts` defines the chapters and the timeline: which frames play, the scroll distance per frame, the dissolve width, focal points, the look-around frames and hotspot positions.
-- `src/journey/engine.ts` maps scroll position to a step on the timeline. It draws the current frame and the next one onto a single `<canvas>` inside a sticky full-screen stage, and redraws only when the scroll position or a loaded image changes (batched with `requestAnimationFrame`). Nothing plays on its own; the frames move only when the page scrolls.
-- `src/journey/frames.ts` loads and decodes frames on demand: the 3 opening frames first, then a window of about 3 frames behind and 10 ahead. If a frame is not ready, the nearest decoded frame is shown instead, so quick scrolling never shows a blank frame.
-- Transitions: inside a chapter, adjacent frames crossfade over a narrow window. At chapter boundaries where a sheet begins with different framing, the picture dips briefly through dark instead, so two frames are never overlaid. Digital push-in is at most 1.2 % per frame.
-- Look-around (section 09): a horizontal drag or swipe, the ← → keys, trackpad sideways scroll or the small buttons change the viewing direction. The stage uses `touch-action: pan-y pinch-zoom`. A mostly vertical gesture is left to the browser and keeps scrolling the page. The view turns only after at least 8 px of mostly horizontal movement. When the gesture ends, the view settles on a single frame. Frame 16 faces the same way as frame 1, so the rotation wraps.
-- Hotspot: a discreet marker shows on look-around frames 1, 2, 15 and 16, where the table approached in section 10 is clearly visible. Tapping it scrolls through section 10 to the table. The **Reservar** button in the header is always available.
-- Sound starts off. With sound on, the bell (synthesised with Web Audio, no file) rings when the finger presses it in section 06, or when the visitor taps **Tocar a campainha**.
-- Accessibility: all controls have labels; the chapter dots are keyboard-focusable and let the visitor jump between chapters. `prefers-reduced-motion` switches dissolves to hard cuts and jumps between chapters without animation. The form uses a native modal `<dialog>` with inline error messages.
-- Test hooks: `?debug` exposes the engine as `window.__sala`. `?falha=01-2,03-4` deliberately breaks those frames so the fallback can be checked.
+- `src/journey/player.ts` maps the scroll position to a film frame and draws it on a full-screen `<canvas>`. The displayed position is eased towards the real scroll position, so the film glides between scroll events. Nothing plays on its own; the film moves only when the visitor scrolls, in either direction.
+- `src/journey/sequence.ts` downloads frames around the playhead in priority order: the nearest frames first, then every 4th frame further ahead, so fast swipes still find a nearby frame. About 28 frames are kept decoded as `ImageBitmap`s, so drawing is instant. If the exact frame is not ready, the nearest decoded one is drawn; the screen never goes blank.
+- A visitor downloads only one variant, progressively: about 21 MB for phones or 35 MB for desktop in total, never all at once.
+- The interface uses GSAP SplitText for the chapter titles, which are scrubbed by scroll, and Lenis for inertial wheel scrolling on desktop. It adds a film letterbox and grain, and hides the scrollbar.
+- Sound starts off. With sound on, a synthesised bell rings when the hand presses it (`BELL_AT` in `data.ts`).
+- `prefers-reduced-motion` turns off easing and animations. The chapter menu is keyboard accessible.
+- `?debug` exposes the player as `window.__sala` for automated checks.
+
+`scripts/crop_frames.py` and `scripts/pipeline/build_media.py` are the earlier storyboard pipeline (Real-ESRGAN upscaling and RIFE interpolation). They are kept for reference and are not used by the current site.
 
 ## Reservations
 

@@ -1,97 +1,75 @@
 /**
- * The journey, described as data.
- *
- * Each chapter is one storyboard sheet. Its photographs were upscaled and the
- * gaps between them filled with generated in-between frames, then encoded as
- * one image sequence (public/assets/sala/seq/section-XX/NNNN.webp) that the
- * scroll position scrubs on a canvas. Frames that restart the camera behind where the previous
- * sheet ended are left out (see scripts/pipeline/build_media.py VIDEOS).
+ * The journey is one continuous film (media/sala.webm), exported as WebP
+ * frames (public/assets/sala/film/{wide,tall}/NNNN.webp) that the scroll
+ * position scrubs on a canvas. Chapters are frame ranges of that film; the
+ * film already fades through black between its scenes.
  */
 
-export type ChapterId = '01' | '02' | '03' | '04' | '05' | '06' | '07' | '08' | '09' | '10' | '11'
+export type ChapterId = '01' | '02' | '03' | '04' | '05' | '06'
 
 export interface Chapter {
   id: ChapterId
-  /** Roman numeral shown on the chapter card. */
   numeral: string
   label: string
-  /** Chapter card title (pt-PT). */
+  /** Chapter card title and film-style subtitle (pt-PT). */
   title?: string
-  /** Film-style subtitle shown mid-chapter. */
   subtitle?: string
-  /** Scroll distance per source photograph, in viewport heights. */
-  step: number
-  /** Extra scroll to rest on the last frame, in viewport heights. */
+  /** Film time range, in seconds. */
+  from: number
+  to: number
+  /** Scroll distance per second of film, in viewport heights. */
+  pace: number
+  /** Extra scroll resting on the last frame, in viewport heights. */
   hold?: number
-  /** Horizontal focal point (0–1) when the video is cropped to cover. */
+  /** Horizontal focal point (0–1) when the frame is cropped to cover. */
   focalX?: number
-  /** Hand-over to the next chapter. */
-  exit?: 'dissolve' | 'dip'
 }
 
 export const CHAPTERS: Chapter[] = [
-  { id: '01', numeral: 'I', label: 'A chegada', step: 0.55, hold: 0.35, exit: 'dissolve' },
-  { id: '02', numeral: 'II', label: 'A entrada', title: 'A entrada', subtitle: 'Pedra, madeira e luz quente.', step: 0.5 },
-  { id: '03', numeral: 'III', label: 'A porta', title: 'A porta', subtitle: 'Entre.', step: 0.36, focalX: 0.6 },
-  { id: '04', numeral: 'IV', label: 'O interior', title: 'Bem-vindo', step: 0.32 },
-  { id: '05', numeral: 'V', label: 'A receção', title: 'A receção', subtitle: 'Estamos à sua espera.', step: 0.36, focalX: 0.62 },
-  { id: '06', numeral: 'VI', label: 'A campainha', title: 'A campainha', subtitle: 'Anuncie a sua chegada.', step: 0.4, hold: 0.3 },
-  { id: '07', numeral: 'VII', label: 'A passagem', title: 'Por aqui', step: 0.32 },
-  { id: '08', numeral: 'VIII', label: 'A sala', title: 'A sala', subtitle: 'Árvores, luz baixa e tempo.', step: 0.32, exit: 'dissolve' },
-  { id: '09', numeral: 'IX', label: 'Olhar em volta', step: 0 },
-  { id: '10', numeral: 'X', label: 'A mesa', title: 'A mesa', step: 0.42, hold: 0.9 },
-  { id: '11', numeral: 'XI', label: 'Até breve', step: 0.5, hold: 0.8 },
+  { id: '01', numeral: 'I', label: 'A porta', from: 0, to: 5.05, pace: 0.42 },
+  { id: '02', numeral: 'II', label: 'A entrada', title: 'Bem-vindo', subtitle: 'Madeira, pedra e luz quente.', from: 5.05, to: 11.9, pace: 0.34 },
+  { id: '03', numeral: 'III', label: 'A campainha', title: 'A receção', subtitle: 'Anuncie a sua chegada.', from: 11.9, to: 15.5, pace: 0.42, hold: 0.2 },
+  { id: '04', numeral: 'IV', label: 'A sala', title: 'A sala', subtitle: 'Uma árvore ao centro, a noite à volta.', from: 15.5, to: 23.37, pace: 0.34 },
+  { id: '05', numeral: 'V', label: 'A mesa', title: 'A sua mesa', from: 23.37, to: 29.0, pace: 0.34 },
+  { id: '06', numeral: 'VI', label: 'Sentar', from: 29.0, to: 39.0, pace: 0.3, hold: 1.1 },
 ]
 
-/** Look-around (section 09): 16 viewing directions, looped. */
-export const LOOK = {
-  count: 16,
-  /** Scroll distance during which the look-around holds the screen. */
-  hold: 1.8,
-  focalX: 0.5,
-  focalByFrame: { 1: 0.68, 2: 0.68, 15: 0.68, 16: 0.68 } as Record<number, number>,
-  /**
-   * Featured-table hotspot in normalised video coordinates, on the source
-   * directions where the table approached in section 10 is clearly visible.
-   */
-  hotspots: {
-    1: { x: 0.74, y: 0.64 },
-    2: { x: 0.71, y: 0.63 },
-    15: { x: 0.73, y: 0.62 },
-    16: { x: 0.71, y: 0.63 },
-  } as Record<number, { x: number; y: number }>,
-}
+/** The moment the hand presses the bell (seconds into the film). */
+export const BELL_AT = 12.75
 
-export interface SequenceInfo {
+export interface Variant {
   frames: number
   width: number
   height: number
-  /** Source photograph numbers, one every `step` frames. */
-  sources: number[]
-  step: number
   bytes: number
 }
 
-export type Manifest = Record<ChapterId, SequenceInfo>
+export interface Manifest {
+  fps: number
+  frames: number
+  variants: { wide: Variant; tall: Variant }
+}
+
+export type VariantName = keyof Manifest['variants']
 
 const BASE = import.meta.env.BASE_URL
 
-export const frameUrl = (id: ChapterId, i: number) =>
-  `${BASE}assets/sala/seq/section-${id}/${String(i).padStart(4, '0')}.webp`
-export const stillUrl = (id: ChapterId, frame: number) =>
-  `${BASE}assets/sala/section-${id}/frame-${String(frame).padStart(2, '0')}.webp`
-export const manifestUrl = `${BASE}assets/sala/seq/manifest.json`
+export const frameUrl = (variant: VariantName, i: number) =>
+  `${BASE}assets/sala/film/${variant}/${String(i).padStart(4, '0')}.webp`
+export const manifestUrl = `${BASE}assets/sala/film/manifest.json`
 
 /* ------------------------------------------------------------------------ */
 
 export interface Segment {
   id: ChapterId
   start: number
-  /** Length of the moving part (viewport heights). */
+  /** Scroll length of the moving part (viewport heights). */
   move: number
-  /** Total length including the hold. */
+  /** Total scroll length including the hold. */
   len: number
-  exit: 'dissolve' | 'dip'
+  /** Film frame range. */
+  f0: number
+  f1: number
 }
 
 export interface Timeline {
@@ -99,26 +77,26 @@ export interface Timeline {
   total: number
 }
 
-/** Hand-over window around a chapter boundary, in viewport heights. */
-export const HANDOVER = 0.22
-
 export function buildTimeline(manifest: Manifest): Timeline {
   let acc = 0
-  const segments: Segment[] = CHAPTERS.map((c) => {
-    let move: number
-    if (c.id === '09') move = LOOK.hold
-    else {
-      const v = manifest[c.id]
-      const steps = Math.max(1, v.sources.length - 1)
-      move = steps * c.step
+  const last = manifest.frames - 1
+  const segments = CHAPTERS.map((c) => {
+    const move = (c.to - c.from) * c.pace
+    const len = move + (c.hold ?? 0)
+    const seg: Segment = {
+      id: c.id,
+      start: acc,
+      move,
+      len,
+      f0: Math.min(last, Math.round(c.from * manifest.fps)),
+      f1: Math.min(last, Math.round(c.to * manifest.fps) - 1),
     }
-    const len = move + (c.hold ?? 0) + HANDOVER
-    const seg = { id: c.id, start: acc, move, len, exit: c.exit ?? 'dip' } as Segment
     acc += len
     return seg
   })
-  // The last chapter has nothing to hand over to.
-  const last = segments[segments.length - 1]
-  last.len -= HANDOVER
-  return { segments, total: acc - HANDOVER }
+  segments[segments.length - 1].f1 = last
+  return { segments, total: acc }
 }
+
+/** A still of the table, used behind the reservation sheet. */
+export const stillUrl = () => `${BASE}assets/sala/film/table.webp`
