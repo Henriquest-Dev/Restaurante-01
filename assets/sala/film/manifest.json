@@ -1,0 +1,24 @@
+{
+ "fps": 20,
+ "variants": {
+  "wide": {
+   "frames": 780,
+   "width": 1920,
+   "height": 1080,
+   "bytes": 76039644
+  },
+  "xl": {
+   "frames": 780,
+   "width": 2560,
+   "height": 1440,
+   "bytes": 94728056
+  },
+  "tall": {
+   "frames": 780,
+   "width": 960,
+   "height": 1440,
+   "bytes": 49925790
+  }
+ },
+ "frames": 780
+}
