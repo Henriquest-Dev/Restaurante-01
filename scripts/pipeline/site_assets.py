@@ -34,7 +34,7 @@ PHOTOS = {
     'bife': '1529692236671-f1f6cf9683ba',
 }
 # Film stills: name -> seconds into media/sala.webm
-STILLS = {'espaco': 6, 'historia': 25, 'eventos': 31, 'rececao': 9.5, 'mesa': 37}
+STILLS = {'historia': 25, 'eventos': 31, 'rececao': 9.5, 'mesa': 37}
 
 
 def fetch(pid):
@@ -96,3 +96,7 @@ def main(out):
 
 if __name__ == '__main__':
     main(sys.argv[1])
+
+# The entrance photos (entrada.webp, entrada-m.webp) are frame 0 of the
+# upscaled film (upscale_film.py, variant xl), the phone version cropped to
+# x 660–1740.

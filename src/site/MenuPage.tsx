@@ -1,9 +1,10 @@
 import { gsap } from 'gsap'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { DISHES } from './content'
-import { reducedMotion } from './fx'
+import { Dust, reducedMotion } from './fx'
 import { Icon } from './icons'
 import { Nav } from './Nav'
+import './home.css'
 import './menu.css'
 
 const pad = (n: number) => String(n + 1).padStart(2, '0')
@@ -100,11 +101,8 @@ export default function MenuPage() {
 
   return (
     <div className="mn" ref={root} style={{ ['--accent' as string]: DISHES[index].accent }}>
-      <div className="mn-room" aria-hidden="true">
-        <span className="mn-lamp" />
-        <span className="mn-floor" />
-      </div>
-      <Nav current="#/menu" theme="light" />
+      <Dust className="mn-dust" density={0.7} />
+      <Nav current="#/menu" />
 
       <main
         className="mn-main"
@@ -123,6 +121,7 @@ export default function MenuPage() {
 
         <div className="mn-stage" aria-live="polite">
           <span className="mn-arc" aria-hidden="true" />
+          <img className="mn-splash" src={`${import.meta.env.BASE_URL}assets/site/splash.webp`} alt="" aria-hidden="true" />
           {DISHES.map((d, i) => (
             <img key={d.id} className="mn-plate" src={d.image} alt={i === shown ? `${d.line1} ${d.line2}` : ''} aria-hidden={i !== shown} />
           ))}

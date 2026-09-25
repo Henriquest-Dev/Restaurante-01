@@ -11,6 +11,7 @@ import './home.css'
 gsap.registerPlugin(ScrollTrigger)
 
 const BASE = import.meta.env.BASE_URL
+const cloud = (n: number) => `${BASE}assets/site/clouds/cloud-${n}.webp`
 
 export default function Home({ section }: { section: string }) {
   useSmoothScroll()
@@ -30,17 +31,24 @@ export default function Home({ section }: { section: string }) {
       gsap.to('.h-hero__text', { yPercent: -40, autoAlpha: 0, ease: 'none', scrollTrigger: { trigger: '.h-hero', start: 'top top', end: 'bottom top', scrub: true } })
       gsap.to('.h-hero__plate', { rotate: 40, yPercent: -18, ease: 'none', scrollTrigger: { trigger: '.h-hero', start: 'top top', end: 'bottom top', scrub: true } })
 
-      // Clouds part to reveal the room.
-      const tl = gsap.timeline({ scrollTrigger: { trigger: '.h-space', start: 'top top', end: 'bottom bottom', scrub: 0.6 } })
-      tl.fromTo('.h-space__photo', { scale: 1.35, filter: 'brightness(0.55)' }, { scale: 1, filter: 'brightness(1)', ease: 'none', duration: 1 }, 0)
-        .fromTo('.h-cloud--l1', { xPercent: 0, yPercent: 0, scale: 1 }, { xPercent: -95, yPercent: -30, scale: 1.5, ease: 'power1.in', duration: 0.8 }, 0)
-        .fromTo('.h-cloud--l2', { xPercent: 0, yPercent: 0, scale: 1 }, { xPercent: -110, yPercent: 40, scale: 1.7, ease: 'power1.in', duration: 0.85 }, 0.05)
-        .fromTo('.h-cloud--r1', { xPercent: 0, yPercent: 0, scale: 1 }, { xPercent: 100, yPercent: -40, scale: 1.6, ease: 'power1.in', duration: 0.8 }, 0.02)
-        .fromTo('.h-cloud--r2', { xPercent: 0, yPercent: 0, scale: 1 }, { xPercent: 115, yPercent: 35, scale: 1.8, ease: 'power1.in', duration: 0.9 }, 0.08)
-        .fromTo('.h-cloud--c', { yPercent: 0, scale: 1, autoAlpha: 1 }, { yPercent: 70, scale: 2.2, autoAlpha: 0, ease: 'power1.in', duration: 0.7 }, 0.1)
-        .fromTo('.h-space__title', { autoAlpha: 0, y: 40, letterSpacing: '0.3em' }, { autoAlpha: 1, y: 0, letterSpacing: '0.02em', ease: 'power2.out', duration: 0.35 }, 0.45)
-        .to('.h-space__title', { autoAlpha: 0, y: -30, duration: 0.2 }, 0.95)
-        .fromTo('.h-space__frame', { clipPath: 'inset(0% 0% 0% 0% round 0px)' }, { clipPath: 'inset(6% 5% 6% 5% round 18px)', ease: 'power2.inOut', duration: 0.3 }, 0.9)
+      // Sky: drifting clouds, the SALA mark between them, then the camera
+      // passes through the clouds and comes down to the entrance.
+      const sky = gsap.timeline({ scrollTrigger: { trigger: '.h-sky', start: 'top top', end: 'bottom bottom', scrub: 0.8 } })
+      sky
+        .fromTo('.h-sky__back', { yPercent: 0 }, { yPercent: -18, ease: 'none', duration: 0.6 }, 0)
+        .fromTo('.h-cl--f1', { xPercent: 0, yPercent: 0, scale: 1 }, { xPercent: -70, yPercent: 10, scale: 1.25, ease: 'power1.inOut', duration: 0.45 }, 0)
+        .fromTo('.h-cl--f2', { xPercent: 0, yPercent: 0, scale: 1 }, { xPercent: 70, yPercent: -10, scale: 1.3, ease: 'power1.inOut', duration: 0.45 }, 0)
+        .fromTo('.h-cl--f3', { xPercent: 0, scale: 1 }, { xPercent: -40, scale: 1.2, ease: 'power1.inOut', duration: 0.5 }, 0)
+        .fromTo('.h-cl--f4', { xPercent: 0, scale: 1 }, { xPercent: 45, scale: 1.2, ease: 'power1.inOut', duration: 0.5 }, 0)
+        .fromTo('.h-sky__mark', { autoAlpha: 0, letterSpacing: '0.9em', filter: 'blur(14px)' }, { autoAlpha: 1, letterSpacing: '0.3em', filter: 'blur(0px)', ease: 'power2.out', duration: 0.25 }, 0.14)
+        .fromTo('.h-sky__sub', { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.12 }, 0.3)
+        // Through the clouds: everything rushes past and dissolves.
+        .to('.h-sky__logo', { scale: 1.6, autoAlpha: 0, ease: 'power2.in', duration: 0.18 }, 0.52)
+        .to('.h-sky__front', { scale: 3.2, autoAlpha: 0, ease: 'power2.in', duration: 0.3 }, 0.5)
+        .to('.h-sky__back', { scale: 2.4, autoAlpha: 0, ease: 'power2.in', duration: 0.2 }, 0.5)
+        .to('.h-sky__air, .h-sky__stars', { autoAlpha: 0, duration: 0.2 }, 0.62)
+        .fromTo('.h-sky__door', { autoAlpha: 0, scale: 1.35, filter: 'blur(10px) brightness(0.7)' }, { autoAlpha: 1, scale: 1, filter: 'blur(0px) brightness(1)', ease: 'power2.out', duration: 0.33 }, 0.64)
+        .fromTo('.h-sky__caption', { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.12 }, 0.84)
 
       // Plates turn slowly as they pass.
       gsap.utils.toArray<HTMLElement>('.h-dish__plate').forEach((el, i) => {
@@ -76,18 +84,31 @@ export default function Home({ section }: { section: string }) {
           </div>
         </section>
 
-        {/* ------------------------------------------------ cloud reveal */}
-        <section className="h-space" aria-label={SPACE.title}>
-          <div className="h-space__sticky">
-            <div className="h-space__frame">
-              <img className="h-space__photo" src={SPACE.image} alt="A sala do restaurante SALA" />
+        {/* ------------------------------------------------ sky → logo → entrance */}
+        <section className="h-sky" aria-label="SALA — a entrada">
+          <div className="h-sky__sticky">
+            <div className="h-sky__air" aria-hidden="true" />
+            <div className="h-sky__stars" aria-hidden="true" />
+            <picture className="h-sky__door">
+              <source media="(orientation: portrait)" srcSet={SPACE.doorTall} />
+              <img src={SPACE.door} alt="A entrada do restaurante SALA" />
+            </picture>
+            <div className="h-sky__back" aria-hidden="true">
+              <img className="h-cl h-cl--b1" src={cloud(2)} alt="" />
+              <img className="h-cl h-cl--b2" src={cloud(4)} alt="" />
+              <img className="h-cl h-cl--b3" src={cloud(1)} alt="" />
             </div>
-            <h2 className="h-space__title">{SPACE.title}</h2>
-            <img className="h-cloud h-cloud--l1" src={`${BASE}assets/site/clouds/cloud-1.webp`} alt="" />
-            <img className="h-cloud h-cloud--r1" src={`${BASE}assets/site/clouds/cloud-2.webp`} alt="" />
-            <img className="h-cloud h-cloud--c" src={`${BASE}assets/site/clouds/cloud-3.webp`} alt="" />
-            <img className="h-cloud h-cloud--l2" src={`${BASE}assets/site/clouds/cloud-4.webp`} alt="" />
-            <img className="h-cloud h-cloud--r2" src={`${BASE}assets/site/clouds/cloud-1.webp`} alt="" />
+            <div className="h-sky__logo">
+              <p className="h-sky__mark">SALA</p>
+              <p className="h-sky__sub">Restaurante · Maputo</p>
+            </div>
+            <div className="h-sky__front" aria-hidden="true">
+              <img className="h-cl h-cl--f1" src={cloud(3)} alt="" />
+              <img className="h-cl h-cl--f2" src={cloud(1)} alt="" />
+              <img className="h-cl h-cl--f3" src={cloud(4)} alt="" />
+              <img className="h-cl h-cl--f4" src={cloud(2)} alt="" />
+            </div>
+            <p className="h-sky__caption">{SPACE.title}</p>
           </div>
         </section>
 

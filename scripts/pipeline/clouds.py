@@ -29,8 +29,8 @@ def cloud(seed, W=1400, H=820):
     height = np.zeros((H, W), np.float32)
     base = H * 0.72
     for _ in range(46):
-        cx = rng.normal(0.5, 0.17) * W
-        r = rng.uniform(0.045, 0.13) * W
+        r = rng.uniform(0.045, 0.12) * W
+        cx = np.clip(rng.normal(0.5, 0.15) * W, r + W * 0.08, W - r - W * 0.08)
         # Bigger puffs sit higher in the middle; the base stays flat-ish.
         top = base - r * rng.uniform(0.4, 1.5) * (1.3 - abs(cx / W - 0.5) * 1.6)
         cy = min(base - r * 0.35, top)
@@ -51,6 +51,10 @@ def cloud(seed, W=1400, H=820):
     shade = np.clip(0.72 + 0.34 * lam, 0.66, 1.0)
     shade = shade * (0.9 + 0.1 * (1 - yy / H))
     alpha = np.clip((hmap - 10) / 45, 0, 1) ** 1.3
+    # Never touch the image border: fade to nothing over the outer 7%.
+    ex = np.clip(np.minimum(xx, W - 1 - xx) / (W * 0.07), 0, 1)
+    ey = np.clip(np.minimum(yy, H - 1 - yy) / (H * 0.07), 0, 1)
+    alpha = alpha * (ex * ey) ** 0.8
     rgb = np.stack([shade * 255, shade * 253, shade * 250], -1)
     im = Image.fromarray(np.dstack([np.clip(rgb, 0, 255), alpha * 255]).astype(np.uint8), 'RGBA')
     return im.filter(ImageFilter.GaussianBlur(1.0))
@@ -61,6 +65,8 @@ if __name__ == '__main__':
     os.makedirs(out, exist_ok=True)
     for i, seed in enumerate([3, 11, 29, 41]):
         c = cloud(seed)
-        c = c.crop(c.getbbox())
+        a = np.asarray(c)[:, :, 3]
+        ys, xs = np.nonzero(a > 3)
+        c = c.crop((max(0, xs.min() - 20), max(0, ys.min() - 20), min(c.width, xs.max() + 20), min(c.height, ys.max() + 20)))
         c.save(os.path.join(out, f'cloud-{i + 1}.webp'), quality=78, method=6)
         print('cloud', i + 1, c.size)

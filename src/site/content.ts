@@ -34,7 +34,11 @@ export const HERO = {
   plate: img('plates/grelha.webp'),
 }
 
-export const SPACE = { title: 'Espaço SALA', image: img('photos/espaco.webp') }
+export const SPACE = {
+  title: 'A entrada',
+  door: img('photos/entrada.webp'),
+  doorTall: img('photos/entrada-m.webp'),
+}
 
 export const STORY = {
   kicker: 'Descubra',
@@ -165,7 +169,7 @@ export const DISHES: Dish[] = [
     text: 'Camarão salteado em alho e malagueta, tomate-cereja e salsa fresca, sobre esparguete al dente.',
     ingredients: ['Camarão', 'Esparguete', 'Tomate-cereja', 'Alho', 'Malagueta', 'Salsa'],
     image: img('plates/camarao.webp'),
-    accent: '#f28b5b',
+    accent: '#e0a458',
   },
   {
     id: 'caril',
@@ -175,7 +179,7 @@ export const DISHES: Dish[] = [
     text: 'Salmão em molho cremoso de coco e especiarias, com limão e coentros.',
     ingredients: ['Salmão', 'Leite de coco', 'Caril', 'Limão', 'Coentros'],
     image: img('plates/caril.webp'),
-    accent: '#f2a93b',
+    accent: '#efc25a',
   },
   {
     id: 'poke',
@@ -185,7 +189,7 @@ export const DISHES: Dish[] = [
     text: 'Salmão grelhado em cubos, milho, pepino, couve roxa, tomate e ovo, numa taça fresca e colorida.',
     ingredients: ['Salmão', 'Milho', 'Pepino', 'Couve roxa', 'Tomate', 'Ovo'],
     image: img('plates/poke.webp'),
-    accent: '#e87a9a',
+    accent: '#c9785a',
   },
   {
     id: 'horta',
@@ -195,7 +199,7 @@ export const DISHES: Dish[] = [
     text: 'Abacate, grão, batata-doce assada, tomate, couve roxa e rabanete, com rebentos frescos.',
     ingredients: ['Abacate', 'Grão-de-bico', 'Batata-doce', 'Tomate', 'Couve roxa', 'Rabanete'],
     image: img('plates/horta.webp'),
-    accent: '#8cc26a',
+    accent: '#a9b865',
   },
   {
     id: 'taca',
@@ -205,7 +209,7 @@ export const DISHES: Dish[] = [
     text: 'Quinoa com grão tostado, ervilha-torta, abacate, fruta da época e cebola roxa.',
     ingredients: ['Quinoa', 'Grão-de-bico', 'Ervilha-torta', 'Abacate', 'Cebola roxa'],
     image: img('plates/taca.webp'),
-    accent: '#5fb7a6',
+    accent: '#7fae98',
   },
   {
     id: 'grelha',
@@ -215,6 +219,6 @@ export const DISHES: Dish[] = [
     text: 'Bife grelhado em frigideira de ferro, com batatas assadas e pimentos padrón.',
     ingredients: ['Bife', 'Batata', 'Pimento padrón', 'Alho', 'Flor de sal'],
     image: img('plates/grelha.webp'),
-    accent: '#c98a5a',
+    accent: '#b98a5e',
   },
 ]
