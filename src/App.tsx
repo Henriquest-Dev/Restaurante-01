@@ -171,9 +171,9 @@ export default function App() {
       </div>
 
       <header className={`bar ${ready ? 'is-on' : ''}`}>
-        <button className="bar__mark" onClick={() => goChapter('01')} aria-label="SALA — voltar ao início">
+        <a className="bar__mark" href="#/" aria-label="SALA — página inicial">
           SALA
-        </button>
+        </a>
         <nav className="bar__links" aria-label="Ações">
           <button className="link" onClick={toggleSound} aria-pressed={sound}>
             Som <span className="link__state">{sound ? 'ligado' : 'desligado'}</span>

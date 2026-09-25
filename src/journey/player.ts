@@ -69,8 +69,13 @@ export class Player {
   constructor(private opts: PlayerOptions) {
     this.timeline = buildTimeline(opts.manifest)
     this.ctx = opts.canvas.getContext('2d', { alpha: false })!
-    // Portrait screens get the centre crop at full height; everything else the full frame.
-    this.variant = window.innerHeight > window.innerWidth * 1.05 ? 'tall' : 'wide'
+    // Portrait screens get the centre crop at full height; large and 4K
+    // screens the 2560 px frames; everything else 1920 px.
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    this.variant =
+      window.innerHeight > window.innerWidth * 1.05 ? 'tall'
+      : window.innerWidth * dpr > 2200 && opts.manifest.variants.xl ? 'xl'
+      : 'wide'
     const v = this.variant
     this.store = new SequenceStore((i) => frameUrl(v, i), 6)
   }

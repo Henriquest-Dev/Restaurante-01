@@ -140,7 +140,11 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
 .bar.is-on { opacity: 1; }
 .bar > * { pointer-events: auto; }
 .bar__mark {
+  display: inline-flex;
+  align-items: center;
   min-height: 44px;
+  color: inherit;
+  text-decoration: none;
   font-family: var(--serif);
   font-size: 17px;
   font-weight: 500;
@@ -633,3 +637,5 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
   }
   .grain { display: none; }
 }
+
+.route-loading { min-height: 100vh; background: #0b0806; }

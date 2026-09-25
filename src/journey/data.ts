@@ -47,7 +47,7 @@ export interface Variant {
 export interface Manifest {
   fps: number
   frames: number
-  variants: { wide: Variant; tall: Variant }
+  variants: { wide: Variant; tall: Variant; xl?: Variant }
 }
 
 export type VariantName = keyof Manifest['variants']
