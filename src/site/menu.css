@@ -27,8 +27,7 @@
   grid-template-columns: 40px minmax(0, 1.05fr) minmax(0, 1.15fr) minmax(250px, 0.8fr);
   grid-template-areas:
     'dots stage head card'
-    'dots thumbs thumbs card'
-    'dots dock dock .';
+    'dots thumbs thumbs card';
   grid-template-rows: auto auto auto;
   column-gap: clamp(14px, 2.5vw, 50px);
   width: min(1600px, 100% - 2 * clamp(18px, 4vw, 60px));
@@ -63,8 +62,8 @@
 .mn-kicker { margin: 0 0 0.6em; font-family: 'Marcellus', serif; font-size: 1.1em; letter-spacing: 0.04em; color: var(--gold); }
 .mn-title { margin: 0; line-height: 0.95; }
 .mn-line { display: block; white-space: nowrap; clip-path: inset(0 0 0 0); }
-.mn-line--thin { font-family: 'Marcellus', serif; font-weight: 400; font-size: min(14.5cqi, 7rem); letter-spacing: -0.02em; text-transform: uppercase; }
-.mn-line--bold { font-family: 'Federo', serif; font-weight: 400; font-size: min(17cqi, 8.4rem); letter-spacing: 0.01em; text-transform: uppercase; color: var(--ink); line-height: 1.05; }
+.mn-line--thin { font-family: 'Marcellus', serif; font-weight: 400; font-size: min(12.5cqi, 6.5rem); letter-spacing: -0.02em; text-transform: uppercase; }
+.mn-line--bold { font-family: 'Federo', serif; font-weight: 400; font-size: min(14.5cqi, 8rem); letter-spacing: 0.01em; text-transform: uppercase; color: var(--ink); line-height: 1.05; }
 .mn-actions { display: flex; flex-wrap: wrap; gap: clamp(20px, 4vw, 70px); margin: 1.6em 0 0; font-size: 1.05em; }
 .mn-actions a { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; }
 .mn-actions a:hover { color: var(--gold); }
@@ -109,23 +108,12 @@
 .mn-thumbs li button:hover img { transform: rotate(-12deg) scale(1.05); }
 .mn-arrow { flex: none; width: 44px; height: 44px; border: 0; background: none; font-size: 2.4em; line-height: 1; color: var(--ink); }
 
-/* Bottom dock */
-.mn-dock {
-  grid-area: dock; justify-self: start; display: flex; align-items: center; gap: clamp(14px, 3vw, 50px);
-  margin-top: clamp(10px, 3vh, 36px); padding: 6px; border-radius: 22px;
-  border: 1px solid var(--faint); background: rgba(20, 19, 17, 0.85);
-}
-.mn-dock a { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; color: var(--soft); transition: color 0.3s; }
-.mn-dock a:hover { color: var(--gold); }
-.mn-dock a.is-on { color: var(--gold); background: rgba(239, 194, 90, 0.08); }
-.mn-dock__round { border-radius: 50% !important; border: 1px solid var(--faint); }
-
 /* ================================================================ responsive */
 
 @media (max-width: 1100px) {
   .mn-main {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: 'stage head' 'thumbs thumbs' 'card card' 'dock dock';
+    grid-template-areas: 'stage head' 'thumbs thumbs' 'card card';
   }
   .mn-dots { display: none; }
   .mn-card { margin-top: 20px; }
@@ -134,7 +122,7 @@
   .mn-main {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: 'stage' 'head' 'thumbs' 'card';
-    padding-bottom: 110px;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 40px);
     text-align: left;
   }
   .mn-stage { justify-self: center; width: 78%; margin-top: 10px; }
@@ -144,10 +132,6 @@
   .mn-actions { gap: 20px; margin-top: 0.8em; }
   .mn-arrow { display: none; }
   .mn-thumbs ul { grid-auto-columns: 30%; }
-  .mn-dock {
-    position: fixed; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); z-index: 5;
-    justify-content: space-around; gap: 0; margin: 0; backdrop-filter: blur(10px);
-  }
 }
 /* Large screens and TVs: everything scales with the viewport. */
 @media (min-width: 2200px) {
@@ -155,10 +139,8 @@
   .mn-main { width: min(3000px, 100% - 8vw); grid-template-columns: 40px minmax(0, 1.05fr) minmax(0, 1.15fr) minmax(250px, 0.75fr); }
   .mn-stage { max-width: none; }
   .mn-line--thin { font-size: 14.5cqi; }
-  .mn-line--bold { font-size: 19cqi; }
+  .mn-line--bold { font-size: 14.5cqi; }
   .mn-thumbs ul { grid-auto-columns: 7vw; }
-  .mn-dock a { width: 3vw; height: 3vw; }
-  .mn-dock .icon { width: 1.4vw; height: 1.4vw; }
   .mn-arrow { width: 3vw; height: 3vw; }
   .mn .nav__links { font-size: 1.2rem; }
 }

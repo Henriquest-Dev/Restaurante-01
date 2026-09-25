@@ -162,6 +162,36 @@ export interface Dish {
 
 export const DISHES: Dish[] = [
   {
+    id: 'bolonhesa',
+    line1: 'Massa à',
+    line2: 'Bolonhesa',
+    category: 'Massas',
+    text: 'Massa italiana tradicional com um molho espesso de tomate e carne picada, finalizada com parmesão.',
+    ingredients: ['Penne', 'Carne picada', 'Tomate', 'Cebola', 'Alho', 'Parmesão'],
+    image: img('plates/bolonhesa.webp'),
+    accent: '#d9804f',
+  },
+  {
+    id: 'carbonara',
+    line1: 'Tagliatelle',
+    line2: 'Carbonara',
+    category: 'Massas',
+    text: 'Tagliatelle em molho cremoso de gema de ovo, com bacon, cogumelos, espinafres e queijo parmesão.',
+    ingredients: ['Tagliatelle', 'Gema de ovo', 'Bacon', 'Cogumelos', 'Espinafres', 'Parmesão'],
+    image: img('plates/carbonara.webp'),
+    accent: '#e3c26e',
+  },
+  {
+    id: 'bife',
+    line1: 'Bife',
+    line2: 'Grelhado',
+    category: 'Grelhados',
+    text: 'Bife grelhado no ponto, fatiado e servido com molho da casa, tomate e azeite de ervas.',
+    ingredients: ['Bife da vazia', 'Molho da casa', 'Tomate', 'Azeite de ervas', 'Flor de sal'],
+    image: img('plates/bife.webp'),
+    accent: '#b5654a',
+  },
+  {
     id: 'camarao',
     line1: 'Esparguete',
     line2: 'Camarão',

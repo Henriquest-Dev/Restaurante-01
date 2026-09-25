@@ -41,7 +41,7 @@ export default function MenuPage() {
     if (!reducedMotion()) {
       gsap.fromTo(plates[0], { xPercent: 80, yPercent: -90, rotate: 160 }, { xPercent: 0, yPercent: 0, rotate: 0, duration: 1.4, ease: 'power3.out', delay: 0.2 })
       gsap.fromTo('.mn-line', { clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)', duration: 0.9, stagger: 0.12, ease: 'power3.out', delay: 0.6 })
-      gsap.fromTo('.mn-card, .mn-thumbs, .mn-dock, .mn-actions', { autoAlpha: 0, y: 24 }, { autoAlpha: 1, y: 0, duration: 1, stagger: 0.08, ease: 'power3.out', delay: 0.8 })
+      gsap.fromTo('.mn-card, .mn-thumbs, .mn-actions', { autoAlpha: 0, y: 24 }, { autoAlpha: 1, y: 0, duration: 1, stagger: 0.08, ease: 'power3.out', delay: 0.8 })
     }
   }, [])
 
@@ -169,7 +169,7 @@ export default function MenuPage() {
             {DISHES.map((d, i) => (
               <li key={d.id}>
                 <button className={i === index ? 'is-on' : ''} onClick={() => go(i)} aria-current={i === index ? 'true' : undefined}>
-                  <img src={d.image} alt="" loading="lazy" />
+                  <img src={d.image.replace('/plates/', '/plates/thumb/')} alt="" />
                   <span>{d.line1} {d.line2}</span>
                 </button>
               </li>
@@ -178,12 +178,6 @@ export default function MenuPage() {
           <button className="mn-arrow" onClick={() => go(index + 1)} aria-label="Prato seguinte">›</button>
         </nav>
 
-        <nav className="mn-dock" aria-label="Atalhos">
-          <a className="is-on" href="#/menu" aria-label="Pratos"><Icon name="fork" /></a>
-          <a href="#/reservar" aria-label="Reservar"><Icon name="calendar" /></a>
-          <a href="#/sobre" aria-label="Sobre"><Icon name="book" /></a>
-          <a className="mn-dock__round" href="#/" aria-label="Início"><Icon name="home" /></a>
-        </nav>
       </main>
     </div>
   )

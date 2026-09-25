@@ -1,6 +1,7 @@
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { SplitText } from 'gsap/SplitText'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { createReservationService, ReservationError } from '../reservations/service'
 import { BOOKING, EVENTS, HERO, MENU_INTRO, POPULAR, REVIEWS, SERVICES, SITE, SPACE, STORY } from './content'
 import { Dust, reducedMotion, Reveal, Roll, scrollToEl, useSmoothScroll } from './fx'
@@ -8,7 +9,7 @@ import { Icon } from './icons'
 import { Nav } from './Nav'
 import './home.css'
 
-gsap.registerPlugin(ScrollTrigger)
+gsap.registerPlugin(ScrollTrigger, SplitText)
 
 const BASE = import.meta.env.BASE_URL
 const cloud = (n: number) => `${BASE}assets/site/clouds/cloud-${n}.webp`
@@ -244,41 +245,102 @@ export default function Home({ section }: { section: string }) {
 
 /* ================================================================ reviews */
 
+const REEL_MS = 7000
+const NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI']
+
+/**
+ * Testimonials as a film sequence: each one is a "shot" with its own
+ * photograph (slow push-in), the quote appears word by word like a
+ * subtitle, and a reel timeline at the bottom advances on its own.
+ */
 function Reviews() {
-  const track = useRef<HTMLDivElement>(null)
-  const move = (dir: number) => {
-    const t = track.current
-    if (!t) return
-    const card = t.querySelector<HTMLElement>('.h-review')
-    t.scrollBy({ left: dir * ((card?.offsetWidth ?? 260) + 16), behavior: reducedMotion() ? 'auto' : 'smooth' })
-  }
+  const root = useRef<HTMLElement>(null)
+  const [i, setI] = useState(0)
+  const [playing, setPlaying] = useState(true)
+  const inView = useRef(false)
+  const n = REVIEWS.items.length
+  const go = useCallback((k: number) => setI(((k % n) + n) % n), [n])
+
+  // Word-by-word entrance of the current quote.
+  useLayoutEffect(() => {
+    const el = root.current!.querySelector<HTMLElement>('.h-reel__quote')!
+    if (reducedMotion()) return
+    const split = SplitText.create(el, { type: 'words', wordsClass: 'w' })
+    const tl = gsap.timeline()
+    tl.fromTo(split.words, { autoAlpha: 0, y: 18, filter: 'blur(8px)' }, { autoAlpha: 1, y: 0, filter: 'blur(0px)', duration: 0.9, stagger: 0.035, ease: 'power3.out' })
+      .fromTo('.h-reel__who', { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.6 }, 0.3)
+    return () => {
+      tl.kill()
+      split.revert()
+    }
+  }, [i])
+
+  // Auto-advance while visible and not paused.
+  useEffect(() => {
+    const el = root.current!
+    const io = new IntersectionObserver(([e]) => (inView.current = e.isIntersecting), { threshold: 0.4 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+  useEffect(() => {
+    if (!playing || reducedMotion()) return
+    const t = setInterval(() => inView.current && go(i + 1), REEL_MS)
+    return () => clearInterval(t)
+  }, [i, playing, go])
+
+  const swipe = useRef<number | null>(null)
+  const photos = [REVIEWS.image, STORY.image, EVENTS.image, BOOKING.image]
+  const r = REVIEWS.items[i]
+
   return (
-    <section className="h-reviews h-wrap" aria-labelledby="h-rev">
-      <div className="h-reviews__head">
-        <div>
-          <Reveal as="p" className="h-kicker h-kicker--line">{REVIEWS.kicker}</Reveal>
-          <Roll as="h2" className="h-title h-title--sans">{REVIEWS.title}</Roll>
-          <p className="h-note">{REVIEWS.note}</p>
-        </div>
-        <div className="h-arrows">
-          <button onClick={() => move(-1)} aria-label="Anterior"><span className="h-arrow h-arrow--l" /></button>
-          <button onClick={() => move(1)} aria-label="Seguinte"><span className="h-arrow" /></button>
-        </div>
-      </div>
-      <div className="h-reviews__track" ref={track} tabIndex={0} aria-label="Testemunhos">
-        <div className="h-review h-review--photo"><img src={REVIEWS.image} alt="Receção da SALA" loading="lazy" /></div>
-        {REVIEWS.items.map((r) => (
-          <article key={r.name} className="h-review">
-            <header>
-              <span>{r.name}</span>
-              <span className="h-stars" aria-label={`${r.stars} de 5 estrelas`}>
-                {'★★★★★'.slice(0, r.stars)}
-                <i>{'★★★★★'.slice(r.stars)}</i>
-              </span>
-            </header>
-            <p>{r.text}</p>
-          </article>
+    <section
+      className="h-reel"
+      ref={root}
+      aria-roledescription="carrossel"
+      aria-label={REVIEWS.title}
+      onMouseEnter={() => setPlaying(false)}
+      onMouseLeave={() => setPlaying(true)}
+      onFocus={() => setPlaying(false)}
+      onPointerDown={(e) => (swipe.current = e.clientX)}
+      onPointerUp={(e) => {
+        const x = swipe.current
+        swipe.current = null
+        if (x !== null && Math.abs(e.clientX - x) > 50) go(i + (e.clientX < x ? 1 : -1))
+      }}
+    >
+      <div className="h-reel__shots" aria-hidden="true">
+        {REVIEWS.items.map((it, k) => (
+          <img key={it.name} className={`h-reel__shot ${k === i ? 'is-on' : ''}`} src={photos[k % photos.length]} alt="" loading="lazy" />
         ))}
+      </div>
+      <div className="h-reel__shade" aria-hidden="true" />
+      <div className="h-reel__bars" aria-hidden="true"><span /><span /></div>
+
+      <div className="h-reel__head h-wrap">
+        <p className="h-kicker h-kicker--line">{REVIEWS.kicker}</p>
+        <Roll as="h2" className="h-title h-title--sans">{REVIEWS.title}</Roll>
+      </div>
+
+      <figure className="h-reel__frame h-wrap" aria-live="polite">
+        <blockquote className="h-reel__quote" key={i}>“{r.text}”</blockquote>
+        <figcaption className="h-reel__who" key={`w${i}`}>
+          <span className="h-reel__name">{r.name}</span>
+          <span className="h-stars" aria-label={`${r.stars} de 5 estrelas`}>{'★★★★★'.slice(0, r.stars)}<i>{'★★★★★'.slice(r.stars)}</i></span>
+        </figcaption>
+      </figure>
+
+      <div className="h-reel__timeline h-wrap">
+        <p className="h-note">{REVIEWS.note}</p>
+        <ol>
+          {REVIEWS.items.map((it, k) => (
+            <li key={it.name}>
+              <button className={k === i ? 'is-on' : k < i ? 'is-past' : ''} onClick={() => go(k)} aria-label={`Testemunho ${k + 1}: ${it.name}`} aria-current={k === i ? 'true' : undefined}>
+                <span className="h-reel__num">{NUMERALS[k]}</span>
+                <span className="h-reel__track"><span style={{ animationDuration: `${REEL_MS}ms`, animationPlayState: playing ? 'running' : 'paused' }} key={`${k}-${i}`} /></span>
+              </button>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   )
